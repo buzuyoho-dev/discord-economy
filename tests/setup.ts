@@ -1,0 +1,19 @@
+import { afterAll, beforeEach } from 'vitest';
+import { prisma } from '../src/db/client';
+
+beforeEach(async () => {
+  await prisma.loan.deleteMany();
+  await prisma.mode2Entry.deleteMany();
+  await prisma.mode2Bet.deleteMany();
+  await prisma.betEntry.deleteMany();
+  await prisma.betOption.deleteMany();
+  await prisma.bet.deleteMany();
+  await prisma.houseTransaction.deleteMany();
+  await prisma.transaction.deleteMany();
+  await prisma.user.deleteMany();
+  await prisma.house.deleteMany();
+});
+
+afterAll(async () => {
+  await prisma.$disconnect();
+});

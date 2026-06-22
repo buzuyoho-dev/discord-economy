@@ -1,0 +1,12 @@
+node_modules/
+dist/
+
+# 환경 변수 (토큰 등 민감한 값)
+.env
+
+# Prisma SQLite 데이터 파일
+*.db
+*.db-journal
+
+*.log
+.DS_Store

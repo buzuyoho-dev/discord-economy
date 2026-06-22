@@ -1,0 +1,17 @@
+import 'dotenv/config';
+
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
+export const env = {
+  DISCORD_TOKEN: required('DISCORD_TOKEN'),
+  DISCORD_CLIENT_ID: required('DISCORD_CLIENT_ID'),
+  DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID,
+  REBATE_ANNOUNCEMENT_CHANNEL_ID: process.env.REBATE_ANNOUNCEMENT_CHANNEL_ID,
+  BET_LOG_CHANNEL_ID: process.env.BET_LOG_CHANNEL_ID,
+};

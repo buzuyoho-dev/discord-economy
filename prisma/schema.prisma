@@ -1,0 +1,153 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum TransactionType {
+  INITIAL
+  ATTENDANCE
+  BET
+  TRANSFER
+  LOAN
+  TAX
+  REBATE
+}
+
+model User {
+  discordId    String        @id
+  balance      Int           @default(0)
+  createdAt    DateTime      @default(now())
+  transactions Transaction[]
+}
+
+model Transaction {
+  id           Int             @id @default(autoincrement())
+  userId       String
+  user         User            @relation(fields: [userId], references: [discordId])
+  type         TransactionType
+  amount       Int
+  balanceAfter Int
+  description  String?
+  createdAt    DateTime        @default(now())
+
+  @@index([userId])
+}
+
+model House {
+  id      String @id
+  balance Int    @default(0)
+}
+
+model HouseTransaction {
+  id           Int             @id @default(autoincrement())
+  type         TransactionType
+  amount       Int
+  balanceAfter Int
+  description  String?
+  occurredAt   DateTime        @default(now())
+}
+
+enum BetStatus {
+  OPEN
+  CLOSED
+  SETTLED
+  VOID
+}
+
+model Bet {
+  id              Int         @id @default(autoincrement())
+  creatorId       String
+  title           String
+  amount          Int
+  status          BetStatus   @default(OPEN)
+  winningOptionId Int?
+  createdAt       DateTime    @default(now())
+  closedAt        DateTime?
+  settledAt       DateTime?
+  options         BetOption[]
+  entries         BetEntry[]
+}
+
+model BetOption {
+  id      Int        @id @default(autoincrement())
+  betId   Int
+  bet     Bet        @relation(fields: [betId], references: [id])
+  label   String
+  entries BetEntry[]
+
+  @@index([betId])
+}
+
+model BetEntry {
+  id       Int       @id @default(autoincrement())
+  betId    Int
+  bet      Bet       @relation(fields: [betId], references: [id])
+  userId   String
+  optionId Int
+  option   BetOption @relation(fields: [optionId], references: [id])
+  joinedAt DateTime  @default(now())
+
+  @@unique([betId, userId])
+  @@index([betId])
+}
+
+enum Mode2BetStatus {
+  OPEN
+  CLOSED
+  SETTLED
+}
+
+enum Mode2Side {
+  A
+  B
+}
+
+model Mode2Bet {
+  id          Int             @id @default(autoincrement())
+  creatorId   String
+  title       String
+  sideALabel  String
+  sideBLabel  String
+  status      Mode2BetStatus  @default(OPEN)
+  winningSide Mode2Side?
+  createdAt   DateTime        @default(now())
+  closedAt    DateTime?
+  settledAt   DateTime?
+  entries     Mode2Entry[]
+}
+
+model Mode2Entry {
+  id       Int       @id @default(autoincrement())
+  betId    Int
+  bet      Mode2Bet  @relation(fields: [betId], references: [id])
+  userId   String
+  side     Mode2Side
+  amount   Int
+  joinedAt DateTime  @default(now())
+
+  @@unique([betId, userId])
+  @@index([betId])
+}
+
+enum LoanStatus {
+  ACTIVE
+  REPAID
+}
+
+model Loan {
+  id         Int        @id @default(autoincrement())
+  lenderId   String
+  borrowerId String
+  principal  Int
+  dueAt      DateTime
+  status     LoanStatus @default(ACTIVE)
+  createdAt  DateTime   @default(now())
+  repaidAt   DateTime?
+
+  @@index([borrowerId])
+  @@index([lenderId])
+}
