@@ -118,6 +118,12 @@ export function formatMode2Close(bet: { id: number; creatorId: string; title: st
   ].join('\n');
 }
 
+export function formatGamble(userId: string, result: { won: boolean; amount: number }): string {
+  const outcome = result.won ? '승' : '패';
+  const sign = result.amount >= 0 ? '+' : '';
+  return `🎲 **[도박]** <@${userId}> ${outcome} (${sign}${result.amount.toLocaleString()})`;
+}
+
 export function formatMode2Settle(
   settled: {
     id: number;
