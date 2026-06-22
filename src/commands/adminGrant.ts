@@ -1,4 +1,9 @@
-import { type ChatInputCommandInteraction, MessageFlags, SlashCommandBuilder } from 'discord.js';
+import {
+  type ChatInputCommandInteraction,
+  MessageFlags,
+  PermissionFlagsBits,
+  SlashCommandBuilder,
+} from 'discord.js';
 import { env } from '../config/env';
 import { logBetEvent } from '../discord/betLog';
 import { formatAdminGrant } from '../discord/betLogMessages';
@@ -7,6 +12,7 @@ import { grantPoints, InvalidGrantAmountError, NotAdminError } from '../services
 export const data = new SlashCommandBuilder()
   .setName('포인트지급')
   .setDescription('(관리자 전용) 특정 유저에게 포인트를 무상 지급합니다.')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .addUserOption((opt) => opt.setName('대상').setDescription('포인트를 받을 유저').setRequired(true))
   .addIntegerOption((opt) =>
     opt.setName('금액').setDescription('지급할 포인트').setRequired(true).setMinValue(1)
