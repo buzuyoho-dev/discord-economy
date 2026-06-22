@@ -9,8 +9,6 @@ import {
 } from 'discord.js';
 import { buildMode2BetAnnouncement, mode2BetErrorMessage } from '../commands/mode2BetView';
 import { prisma } from '../db/client';
-import { logBetEvent } from '../discord/betLog';
-import { formatMode2Join } from '../discord/betLogMessages';
 import { placeMode2Bet } from '../services/mode2Bet';
 
 const CHOOSE_PREFIX = 'mode2bet:choose:';
@@ -73,10 +71,8 @@ export async function handleMode2BetAmountModal(interaction: ModalSubmitInteract
     await placeMode2Bet({ betId, userId: interaction.user.id, side, amount });
     await interaction.reply({ content: '베팅 참가 완료!', flags: MessageFlags.Ephemeral });
 
-    const bet = await prisma.mode2Bet.findUniqueOrThrow({ where: { id: betId } });
-    await logBetEvent(interaction.client, formatMode2Join(bet, interaction.user.id, amount));
-
     if (interaction.message) {
+      const bet = await prisma.mode2Bet.findUniqueOrThrow({ where: { id: betId } });
       const entries = await prisma.mode2Entry.findMany({
         where: { betId },
         orderBy: { joinedAt: 'asc' },

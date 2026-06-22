@@ -23,15 +23,6 @@ export function formatMode1Create(bet: {
   ].join('\n');
 }
 
-export function formatMode1Join(bet: { id: number; title: string }, userId: string): string {
-  return [
-    `✅ **[모드1 참가]** 베팅 #${bet.id} (${bet.title})`,
-    `참가자: <@${userId}>`,
-    timestampLine(),
-    '(선택 내용은 비공개 원칙에 따라 정산 시 함께 공개됩니다)',
-  ].join('\n');
-}
-
 export function formatMode1Close(bet: { id: number; creatorId: string; title: string }): string {
   return [
     `🔒 **[모드1 마감]** 베팅 #${bet.id}`,
@@ -95,16 +86,6 @@ export function formatMode2Create(bet: {
     timestampLine(),
     `제목: ${bet.title}`,
     `사이드: ${bet.sideALabel} / ${bet.sideBLabel} (자유 금액)`,
-  ].join('\n');
-}
-
-export function formatMode2Join(bet: { id: number; title: string }, userId: string, amount: number): string {
-  return [
-    `✅ **[모드2 참가]** 베팅 #${bet.id} (${bet.title})`,
-    `참가자: <@${userId}>`,
-    timestampLine(),
-    `베팅액: ${amount.toLocaleString()} 포인트`,
-    '(선택한 사이드는 비공개 원칙에 따라 정산 시 함께 공개됩니다)',
   ].join('\n');
 }
 

@@ -1,8 +1,6 @@
 import { type ButtonInteraction, MessageFlags } from 'discord.js';
 import { buildBetAnnouncement, mode1BetErrorMessage } from '../commands/mode1BetView';
 import { prisma } from '../db/client';
-import { logBetEvent } from '../discord/betLog';
-import { formatMode1Join } from '../discord/betLogMessages';
 import { joinBet } from '../services/mode1Bet';
 
 const CUSTOM_ID_PREFIX = 'mode1bet:join:';
@@ -35,8 +33,6 @@ export async function handleMode1BetJoinButton(interaction: ButtonInteraction) {
       content: buildBetAnnouncement(bet, participantUserIds),
       allowedMentions: { users: [] },
     });
-
-    await logBetEvent(interaction.client, formatMode1Join(bet, interaction.user.id));
   } catch (error) {
     const message = mode1BetErrorMessage(error);
     if (!message) {
