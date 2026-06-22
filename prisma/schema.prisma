@@ -18,6 +18,7 @@ enum TransactionType {
   GAMBLE_WIN
   GAMBLE_LOSE
   ADMIN_GRANT
+  GAMBLE_ROLLBACK
 }
 
 model User {

@@ -28,6 +28,17 @@ export interface GambleResult {
   balanceAfter: number;
 }
 
+const ROLLBACK_REF_PATTERN = /원거래 #(\d+)/;
+
+export function buildGambleRollbackDescription(originalTransactionId: number): string {
+  return `도박 버그 롤백 (원거래 #${originalTransactionId})`;
+}
+
+function parseRolledBackTransactionId(description: string | null): number | null {
+  const match = description?.match(ROLLBACK_REF_PATTERN);
+  return match ? Number(match[1]) : null;
+}
+
 export async function gamble(params: {
   discordId: string;
   now?: Date;
@@ -47,7 +58,22 @@ export async function gamble(params: {
       orderBy: { createdAt: 'desc' },
       take: MAX_GAMBLES_PER_DAY,
     });
-    const todaysCount = recentGambles.filter((g) => isSameKstDay(g.createdAt, now)).length;
+    const todaysGambles = recentGambles.filter((g) => isSameKstDay(g.createdAt, now));
+
+    let todaysCount = todaysGambles.length;
+    if (todaysGambles.length > 0) {
+      const rollbacks = await tx.transaction.findMany({
+        where: { userId: params.discordId, type: TransactionType.GAMBLE_ROLLBACK },
+        select: { description: true },
+      });
+      const rolledBackIds = new Set(
+        rollbacks
+          .map((r) => parseRolledBackTransactionId(r.description))
+          .filter((id): id is number => id !== null)
+      );
+      todaysCount = todaysGambles.filter((g) => !rolledBackIds.has(g.id)).length;
+    }
+
     if (todaysCount >= MAX_GAMBLES_PER_DAY) {
       throw new DailyGambleLimitExceededError(params.discordId);
     }

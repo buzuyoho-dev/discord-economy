@@ -1,8 +1,10 @@
+import { TransactionType } from '@prisma/client';
 import { describe, expect, test } from 'vitest';
 import { prisma } from '../../src/db/client';
 import { getOrCreateHouse, HOUSE_ID } from '../../src/services/house';
-import { getOrCreateUser } from '../../src/services/ledger';
+import { applyTransaction, getOrCreateUser } from '../../src/services/ledger';
 import {
+  buildGambleRollbackDescription,
   DailyGambleLimitExceededError,
   GAMBLE_AMOUNT,
   gamble,
@@ -157,6 +159,66 @@ describe('gamble - 하루 횟수 제한', () => {
     });
     expect(txs).toHaveLength(MAX_GAMBLES_PER_DAY);
   });
+
+  test('GAMBLE_ROLLBACK으로 되돌린 도박은 오늘 횟수에서 제외되어 다시 도박할 수 있다', async () => {
+    const discordId = 'g-rollback-1';
+    const user = await getOrCreateUser(discordId);
+    await getOrCreateHouse();
+
+    const win1 = await gamble({ discordId, random: forceWin });
+    const win2 = await gamble({ discordId, random: forceWin });
+
+    await expect(gamble({ discordId, random: forceWin })).rejects.toThrow(DailyGambleLimitExceededError);
+
+    const winTxs = await prisma.transaction.findMany({
+      where: { userId: discordId, type: TransactionType.GAMBLE_WIN },
+      orderBy: { id: 'asc' },
+    });
+    expect(winTxs).toHaveLength(2);
+
+    await prisma.$transaction(async (tx) => {
+      for (const winTx of winTxs) {
+        await applyTransaction(tx, {
+          discordId,
+          type: TransactionType.GAMBLE_ROLLBACK,
+          amount: -winTx.amount,
+          description: buildGambleRollbackDescription(winTx.id),
+        });
+      }
+    });
+
+    const restoredUser = await prisma.user.findUniqueOrThrow({ where: { discordId } });
+    expect(restoredUser.balance).toBe(user.balance);
+    expect(win1.won && win2.won).toBe(true); // 가정 확인: 두 번 다 승리했었다는 전제
+
+    const result3 = await gamble({ discordId, random: forceWin });
+    expect(result3.won).toBe(true);
+    const result4 = await gamble({ discordId, random: forceWin });
+    expect(result4.won).toBe(true);
+
+    await expect(gamble({ discordId, random: forceWin })).rejects.toThrow(DailyGambleLimitExceededError);
+  });
+});
+
+describe('gamble - 확률 회귀 검증', () => {
+  test(
+    '실제 난수(Math.random, 미모킹)로 1000회 반복 시 승률이 45~55% 사이여야 한다',
+    async () => {
+      await getOrCreateHouse();
+
+      const TRIALS = 1000;
+      let wins = 0;
+      for (let i = 0; i < TRIALS; i++) {
+        const result = await gamble({ discordId: `g-prob-${i}` });
+        if (result.won) wins++;
+      }
+
+      const winRate = wins / TRIALS;
+      expect(winRate).toBeGreaterThanOrEqual(0.45);
+      expect(winRate).toBeLessThanOrEqual(0.55);
+    },
+    30_000
+  );
 });
 
 describe('gamble - 원자성', () => {
