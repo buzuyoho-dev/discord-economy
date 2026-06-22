@@ -4,6 +4,7 @@ import type {
   SlashCommandOptionsOnlyBuilder,
   SlashCommandSubcommandsOnlyBuilder,
 } from 'discord.js';
+import * as adminGrant from './adminGrant';
 import * as balance from './balance';
 import * as checkin from './checkin';
 import * as gamble from './gamble';
@@ -24,6 +25,7 @@ export interface Command {
 }
 
 export const commands = new Map<string, Command>([
+  [adminGrant.data.name, adminGrant],
   [balance.data.name, balance],
   [checkin.data.name, checkin],
   [gamble.data.name, gamble],

@@ -118,6 +118,10 @@ export function formatMode2Close(bet: { id: number; creatorId: string; title: st
   ].join('\n');
 }
 
+export function formatAdminGrant(targetId: string, amount: number, reason: string): string {
+  return `💰 **[관리자 지급]** <@${targetId}> +${amount.toLocaleString()} (사유: ${reason})`;
+}
+
 export function formatGamble(userId: string, result: { won: boolean; amount: number }): string {
   const outcome = result.won ? '승' : '패';
   const sign = result.amount >= 0 ? '+' : '';

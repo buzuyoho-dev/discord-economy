@@ -17,6 +17,7 @@ enum TransactionType {
   REBATE
   GAMBLE_WIN
   GAMBLE_LOSE
+  ADMIN_GRANT
 }
 
 model User {
