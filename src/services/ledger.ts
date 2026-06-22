@@ -1,7 +1,7 @@
 import { Prisma, TransactionType } from '@prisma/client';
 import { prisma } from '../db/client';
 
-const STARTING_BALANCE = 10_000_000;
+export const STARTING_BALANCE = 10_000_000;
 
 export class InsufficientBalanceError extends Error {
   constructor(entityId: string, attemptedBalance: number) {
