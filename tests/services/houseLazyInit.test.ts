@@ -4,6 +4,7 @@ import { gamble, GAMBLE_AMOUNT } from '../../src/services/gamble';
 import { HOUSE_ID } from '../../src/services/house';
 import { getOrCreateUser } from '../../src/services/ledger';
 import { createLoan } from '../../src/services/loan';
+import { closeBet, createBet, joinBet, settleBet } from '../../src/services/mode1Bet';
 import {
   createMode2Bet,
   Mode2BetLimitExceededError,
@@ -44,6 +45,37 @@ describe('House row 없이 처음 실행 - 도박', () => {
     expect(houseTxs).toHaveLength(1);
     expect(houseTxs[0].amount).toBe(GAMBLE_AMOUNT);
     expect(houseTxs[0].balanceAfter).toBe(GAMBLE_AMOUNT);
+  });
+});
+
+describe('House row 없이 처음 실행 - 모드1 베팅', () => {
+  test('정산 중 세금 귀속이 House 없이도 정상 처리된다', async () => {
+    const bet = await createBet({
+      creatorId: 'fresh-creator-m1',
+      title: '모드1베팅X',
+      amount: 1_000_000,
+      options: ['A', 'B'],
+    });
+    await joinBet({ betId: bet.id, userId: 'fresh-winner-m1', optionId: bet.options[0].id });
+    await joinBet({ betId: bet.id, userId: 'fresh-loser-m1', optionId: bet.options[1].id });
+    await closeBet({ betId: bet.id, requestedBy: 'fresh-creator-m1' });
+
+    const settled = await settleBet({
+      betId: bet.id,
+      requestedBy: 'fresh-creator-m1',
+      winningOptionId: bet.options[0].id,
+    });
+    expect(settled.status).toBe('SETTLED');
+
+    const house = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(house.balance).toBe(50_000); // 순수익 1,000,000의 5% 세금만
+
+    const houseTxs = await prisma.houseTransaction.findMany({
+      where: { description: { contains: '모드1베팅X' } },
+    });
+    expect(houseTxs).toHaveLength(1);
+    expect(houseTxs[0].type).toBe('TAX');
+    expect(houseTxs[0].amount).toBe(50_000);
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { prisma } from '../../src/db/client';
+import { HOUSE_ID } from '../../src/services/house';
 import { getOrCreateUser } from '../../src/services/ledger';
 import {
   AlreadyJoinedError,
@@ -352,10 +353,12 @@ describe('settleBet', () => {
 
     expect(settled.status).toBe('SETTLED');
 
-    // 풀 4,000,000을 승자 2명이 나눔 = 각 2,000,000. 참가 시 이미 -1,000,000 했으므로 9,000,000 + 2,000,000
+    // 풀 4,000,000을 승자 2명이 나눔 = 각 2,000,000(원금 1,000,000 + 순수익 1,000,000).
+    // 순수익의 5%(50,000)는 세금으로 빠지므로 실수령은 1,950,000.
+    // 참가 시 이미 -1,000,000 했으므로 9,000,000 + 1,950,000
     for (const id of ['winner1', 'winner2']) {
       const user = await prisma.user.findUniqueOrThrow({ where: { discordId: id } });
-      expect(user.balance).toBe(11_000_000);
+      expect(user.balance).toBe(10_950_000);
     }
     // 오답자는 참가 시 차감된 9,000,000에서 추가 변동 없음
     for (const id of ['loser1', 'loser2']) {
@@ -363,12 +366,15 @@ describe('settleBet', () => {
       expect(user.balance).toBe(9_000_000);
     }
 
-    // 베팅 기록 로그에 쓰일 entryResults: 승자는 지급액, 패자는 0
+    // 베팅 기록 로그에 쓰일 entryResults: 승자는 세후 실수령액, 패자는 0
     const winner1Result = settled.entryResults.find((r) => r.userId === 'winner1');
     const loser1Result = settled.entryResults.find((r) => r.userId === 'loser1');
-    expect(winner1Result?.creditedAmount).toBe(2_000_000);
+    expect(winner1Result?.creditedAmount).toBe(1_950_000);
     expect(loser1Result?.creditedAmount).toBe(0);
     expect(settled.entryResults).toHaveLength(4);
+
+    const house = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(house.balance).toBe(100_000); // 승자 2명 x 순수익 1,000,000 x 5%
   });
 
   test('정확히 나누어지지 않으면 나머지를 참가 순서가 빠른 정답자부터 1포인트씩 분배해 풀을 정확히 소진한다', async () => {
@@ -390,17 +396,150 @@ describe('settleBet', () => {
     });
 
     // totalPool = 3,000,003, winners 2명 => base 1,500,001, remainder 1
-    // 먼저 참가한 승자가 나머지 1포인트를 더 받는다
+    // 먼저 참가한 승자가 나머지 1포인트를 더 받는다 (세전 지급액: 1,500,002 / 1,500,001)
+    // 세전 순수익 = 세전지급액 - 원금(1,000,001) => 500,001 / 500,000, 각 5% 세금 = 25,000 (round)
+    // 세후 실수령 = 1,475,002 / 1,475,001
     const earlyWinner = await prisma.user.findUniqueOrThrow({ where: { discordId: 'early-winner' } });
     const lateWinner = await prisma.user.findUniqueOrThrow({ where: { discordId: 'late-winner' } });
 
-    expect(earlyWinner.balance).toBe(10_000_000 - 1_000_001 + 1_500_002);
-    expect(lateWinner.balance).toBe(10_000_000 - 1_000_001 + 1_500_001);
+    expect(earlyWinner.balance).toBe(10_000_000 - 1_000_001 + 1_475_002);
+    expect(lateWinner.balance).toBe(10_000_000 - 1_000_001 + 1_475_001);
 
-    // 총 지급액이 풀과 정확히 일치하는지 (포인트 누수/생성 없음)
+    // 지급액 합계 + 세금 합계 = 원래 풀 전체 (포인트 누수/생성 없음)
     const totalPaidToWinners =
       (earlyWinner.balance - (10_000_000 - 1_000_001)) +
       (lateWinner.balance - (10_000_000 - 1_000_001));
-    expect(totalPaidToWinners).toBe(3_000_003);
+    const house = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(totalPaidToWinners + house.balance).toBe(3_000_003);
+    expect(house.balance).toBe(50_000);
+  });
+});
+
+describe('settleBet - 모드1 베팅세 (5%, 순수익 기준)', () => {
+  function sumCreditedAmounts(entryResults: { creditedAmount: number }[]): number {
+    return entryResults.reduce((sum, entry) => sum + entry.creditedAmount, 0);
+  }
+
+  test('승자 1명: 순수익의 5%만 세금으로 빠지고 나머지를 실수령한다', async () => {
+    const bet = await createBet({
+      creatorId: 'tax-creator-1',
+      title: '세금테스트1',
+      amount: 1_000_000,
+      options: ['A', 'B'],
+    });
+    await joinBet({ betId: bet.id, userId: 'tax-winner-1', optionId: bet.options[0].id });
+    await joinBet({ betId: bet.id, userId: 'tax-loser-1', optionId: bet.options[1].id });
+    await closeBet({ betId: bet.id, requestedBy: 'tax-creator-1' });
+
+    const settled = await settleBet({
+      betId: bet.id,
+      requestedBy: 'tax-creator-1',
+      winningOptionId: bet.options[0].id,
+    });
+
+    // totalPool=2,000,000, 승자 1명 => 세전 지급액 2,000,000, 순수익 1,000,000, 세금 50,000
+    const winner = await prisma.user.findUniqueOrThrow({ where: { discordId: 'tax-winner-1' } });
+    expect(winner.balance).toBe(10_000_000 - 1_000_000 + 1_950_000);
+
+    const house = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(house.balance).toBe(50_000);
+
+    const winnerResult = settled.entryResults.find((r) => r.userId === 'tax-winner-1');
+    expect(winnerResult?.creditedAmount).toBe(1_950_000);
+
+    expect(sumCreditedAmounts(settled.entryResults) + house.balance).toBe(2_000_000);
+  });
+
+  test('승자 2명: 각자의 순수익 기준으로 5%씩 세금이 계산된다', async () => {
+    const bet = await createBet({
+      creatorId: 'tax-creator-2',
+      title: '세금테스트2',
+      amount: 1_000_000,
+      options: ['A', 'B'],
+    });
+    await joinBet({ betId: bet.id, userId: 'tax-winner-2a', optionId: bet.options[0].id });
+    await joinBet({ betId: bet.id, userId: 'tax-winner-2b', optionId: bet.options[0].id });
+    await joinBet({ betId: bet.id, userId: 'tax-loser-2a', optionId: bet.options[1].id });
+    await joinBet({ betId: bet.id, userId: 'tax-loser-2b', optionId: bet.options[1].id });
+    await closeBet({ betId: bet.id, requestedBy: 'tax-creator-2' });
+
+    const settled = await settleBet({
+      betId: bet.id,
+      requestedBy: 'tax-creator-2',
+      winningOptionId: bet.options[0].id,
+    });
+
+    // totalPool=4,000,000, 승자 2명 => 세전 지급액 각 2,000,000, 순수익 각 1,000,000, 세금 각 50,000
+    for (const id of ['tax-winner-2a', 'tax-winner-2b']) {
+      const winner = await prisma.user.findUniqueOrThrow({ where: { discordId: id } });
+      expect(winner.balance).toBe(10_000_000 - 1_000_000 + 1_950_000);
+    }
+
+    const house = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(house.balance).toBe(100_000);
+
+    expect(sumCreditedAmounts(settled.entryResults) + house.balance).toBe(4_000_000);
+  });
+
+  test('승자 3명: 각자의 순수익 기준으로 5%씩 세금이 계산된다', async () => {
+    const bet = await createBet({
+      creatorId: 'tax-creator-3',
+      title: '세금테스트3',
+      amount: 600_000,
+      options: ['A', 'B'],
+    });
+    await joinBet({ betId: bet.id, userId: 'tax-winner-3a', optionId: bet.options[0].id });
+    await joinBet({ betId: bet.id, userId: 'tax-winner-3b', optionId: bet.options[0].id });
+    await joinBet({ betId: bet.id, userId: 'tax-winner-3c', optionId: bet.options[0].id });
+    await joinBet({ betId: bet.id, userId: 'tax-loser-3a', optionId: bet.options[1].id });
+    await joinBet({ betId: bet.id, userId: 'tax-loser-3b', optionId: bet.options[1].id });
+    await closeBet({ betId: bet.id, requestedBy: 'tax-creator-3' });
+
+    const settled = await settleBet({
+      betId: bet.id,
+      requestedBy: 'tax-creator-3',
+      winningOptionId: bet.options[0].id,
+    });
+
+    // totalPool=3,000,000, 승자 3명 => 세전 지급액 각 1,000,000, 순수익 각 400,000, 세금 각 20,000
+    for (const id of ['tax-winner-3a', 'tax-winner-3b', 'tax-winner-3c']) {
+      const winner = await prisma.user.findUniqueOrThrow({ where: { discordId: id } });
+      expect(winner.balance).toBe(10_000_000 - 600_000 + 980_000);
+    }
+
+    const house = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(house.balance).toBe(60_000);
+
+    expect(sumCreditedAmounts(settled.entryResults) + house.balance).toBe(3_000_000);
+  });
+
+  test('무효 처리(전원 동일 선택) 시에는 환불일 뿐이라 세금이 발생하지 않는다', async () => {
+    const bet = await createBet({
+      creatorId: 'tax-void-creator',
+      title: '무효세금테스트',
+      amount: 1_000_000,
+      options: ['A', 'B'],
+    });
+    await joinBet({ betId: bet.id, userId: 'tax-void-p1', optionId: bet.options[0].id });
+    await joinBet({ betId: bet.id, userId: 'tax-void-p2', optionId: bet.options[0].id });
+    await closeBet({ betId: bet.id, requestedBy: 'tax-void-creator' });
+
+    const settled = await settleBet({
+      betId: bet.id,
+      requestedBy: 'tax-void-creator',
+      winningOptionId: bet.options[0].id,
+    });
+    expect(settled.status).toBe('VOID');
+
+    for (const id of ['tax-void-p1', 'tax-void-p2']) {
+      const user = await prisma.user.findUniqueOrThrow({ where: { discordId: id } });
+      expect(user.balance).toBe(10_000_000); // 환불만, 세금 없음
+    }
+
+    const house = await prisma.house.findUnique({ where: { id: HOUSE_ID } });
+    expect(house?.balance ?? 0).toBe(0);
+
+    const taxTxs = await prisma.houseTransaction.findMany({ where: { type: 'TAX' } });
+    expect(taxTxs).toHaveLength(0);
   });
 });

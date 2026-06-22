@@ -9,6 +9,7 @@ import {
   normalizeLabel,
   NotBetCreatorError,
 } from './betShared';
+import { applyHouseTransaction } from './house';
 import { applyTransaction, getOrCreateUser } from './ledger';
 
 export {
@@ -22,6 +23,8 @@ export {
 } from './betShared';
 export class DuplicateOptionLabelError extends Error {}
 export class InvalidOptionError extends Error {}
+
+const TAX_RATE = 0.05;
 
 export async function createBet(params: {
   creatorId: string;
@@ -184,15 +187,29 @@ export async function settleBet(params: {
     const basePayout = Math.floor(totalPool / winnersByJoinOrder.length);
     const remainder = totalPool % winnersByJoinOrder.length;
     const payoutByUserId = new Map<string, number>();
+    let totalTax = 0;
 
     for (let i = 0; i < winnersByJoinOrder.length; i++) {
-      const payout = basePayout + (i < remainder ? 1 : 0);
-      payoutByUserId.set(winnersByJoinOrder[i].userId, payout);
+      const grossPayout = basePayout + (i < remainder ? 1 : 0);
+      const profit = grossPayout - bet.amount;
+      const tax = Math.round(profit * TAX_RATE);
+      const netPayout = grossPayout - tax;
+      totalTax += tax;
+      payoutByUserId.set(winnersByJoinOrder[i].userId, netPayout);
       await applyTransaction(tx, {
         discordId: winnersByJoinOrder[i].userId,
         type: TransactionType.BET,
-        amount: payout,
+        amount: netPayout,
         description: `베팅 정산: ${bet.title}`,
+        occurredAt,
+      });
+    }
+
+    if (totalTax > 0) {
+      await applyHouseTransaction(tx, {
+        type: TransactionType.TAX,
+        amount: totalTax,
+        description: `모드1 베팅세: ${bet.title}`,
         occurredAt,
       });
     }
