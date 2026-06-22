@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'vitest';
 import { prisma } from '../../src/db/client';
-import { InsufficientBalanceError } from '../../src/services/ledger';
-import { applyHouseTransaction, getOrCreateHouse, HOUSE_ID } from '../../src/services/house';
+import { getOrCreateUser, InsufficientBalanceError } from '../../src/services/ledger';
+import {
+  applyHouseTransaction,
+  getHouseStatus,
+  getOrCreateHouse,
+  HOUSE_ID,
+} from '../../src/services/house';
 
 describe('getOrCreateHouse', () => {
   test('하우스 레코드가 없으면 잔액 0으로 생성한다', async () => {
@@ -19,6 +24,31 @@ describe('getOrCreateHouse', () => {
 
     const count = await prisma.house.count();
     expect(count).toBe(1);
+  });
+});
+
+describe('getHouseStatus', () => {
+  test('하우스/유저가 없으면 잔액과 점유율 모두 0이다', async () => {
+    const status = await getHouseStatus();
+
+    expect(status.balance).toBe(0);
+    expect(status.totalUserBalance).toBe(0);
+    expect(status.share).toBe(0);
+  });
+
+  test('하우스 잔액과 전체 유저 잔액 합을 기준으로 점유율을 계산한다', async () => {
+    await getOrCreateUser('house-status-1'); // 10,000,000
+    await getOrCreateUser('house-status-2'); // 10,000,000
+    await getOrCreateHouse();
+    await prisma.$transaction((tx) =>
+      applyHouseTransaction(tx, { type: 'TAX', amount: 5_000_000, description: 'test setup' })
+    );
+
+    const status = await getHouseStatus();
+
+    expect(status.balance).toBe(5_000_000);
+    expect(status.totalUserBalance).toBe(20_000_000);
+    expect(status.share).toBeCloseTo(0.2);
   });
 });
 

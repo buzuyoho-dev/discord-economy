@@ -17,6 +17,16 @@ export async function getOrCreateHouse(db: Db = prisma) {
   return db.house.create({ data: { id: HOUSE_ID } });
 }
 
+export async function getHouseStatus(db: Db = prisma) {
+  const house = await getOrCreateHouse(db);
+  const users = await db.user.findMany({ select: { balance: true } });
+  const totalUserBalance = users.reduce((sum, user) => sum + user.balance, 0);
+  const totalEconomy = house.balance + totalUserBalance;
+  const share = totalEconomy > 0 ? house.balance / totalEconomy : 0;
+
+  return { balance: house.balance, totalUserBalance, share };
+}
+
 export async function applyHouseTransaction(
   tx: Prisma.TransactionClient,
   params: {
