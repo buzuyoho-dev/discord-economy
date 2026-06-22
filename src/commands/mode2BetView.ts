@@ -8,6 +8,7 @@ import {
 } from '../services/betShared';
 import { InsufficientBalanceError } from '../services/ledger';
 import { Mode2BetLimitExceededError } from '../services/mode2Bet';
+import { formatParticipantsLine } from '../discord/participants';
 
 const STATUS_LABELS: Record<string, string> = {
   OPEN: '참가 가능',
@@ -15,16 +16,20 @@ const STATUS_LABELS: Record<string, string> = {
   SETTLED: '정산 완료',
 };
 
-export function buildMode2BetAnnouncement(bet: {
-  id: number;
-  title: string;
-  status: string;
-  sideALabel: string;
-  sideBLabel: string;
-}): string {
+export function buildMode2BetAnnouncement(
+  bet: {
+    id: number;
+    title: string;
+    status: string;
+    sideALabel: string;
+    sideBLabel: string;
+  },
+  participantUserIds: string[]
+): string {
   return [
     `**[모드2 베팅 #${bet.id}] ${bet.title}**`,
     `상태: ${STATUS_LABELS[bet.status] ?? bet.status}`,
+    formatParticipantsLine(participantUserIds),
     '',
     '아래 버튼으로 참가하세요 (금액은 자유, 선택은 비공개):',
     `- ${bet.sideALabel}`,

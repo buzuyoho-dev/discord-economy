@@ -46,8 +46,9 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     );
 
     await interaction.reply({
-      content: buildBetAnnouncement(bet, 0),
+      content: buildBetAnnouncement(bet, []),
       components: [row],
+      allowedMentions: { users: [] },
     });
 
     await logBetEvent(interaction.client, formatMode1Create(bet));

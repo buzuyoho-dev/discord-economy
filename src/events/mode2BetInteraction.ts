@@ -7,7 +7,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
-import { mode2BetErrorMessage } from '../commands/mode2BetView';
+import { buildMode2BetAnnouncement, mode2BetErrorMessage } from '../commands/mode2BetView';
 import { prisma } from '../db/client';
 import { logBetEvent } from '../discord/betLog';
 import { formatMode2Join } from '../discord/betLogMessages';
@@ -75,6 +75,20 @@ export async function handleMode2BetAmountModal(interaction: ModalSubmitInteract
 
     const bet = await prisma.mode2Bet.findUniqueOrThrow({ where: { id: betId } });
     await logBetEvent(interaction.client, formatMode2Join(bet, interaction.user.id, amount));
+
+    if (interaction.message) {
+      const entries = await prisma.mode2Entry.findMany({
+        where: { betId },
+        orderBy: { joinedAt: 'asc' },
+        select: { userId: true },
+      });
+      const participantUserIds = entries.map((entry) => entry.userId);
+
+      await interaction.message.edit({
+        content: buildMode2BetAnnouncement(bet, participantUserIds),
+        allowedMentions: { users: [] },
+      });
+    }
   } catch (error) {
     const message = mode2BetErrorMessage(error);
     if (!message) {

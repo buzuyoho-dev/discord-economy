@@ -9,6 +9,7 @@ import {
   NotBetCreatorError,
 } from '../services/mode1Bet';
 import { InsufficientBalanceError } from '../services/ledger';
+import { formatParticipantsLine } from '../discord/participants';
 
 const STATUS_LABELS: Record<string, string> = {
   OPEN: '참가 가능',
@@ -19,14 +20,15 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function buildBetAnnouncement(
   bet: { id: number; title: string; amount: number; status: string; options: { label: string }[] },
-  participantCount: number
+  participantUserIds: string[]
 ): string {
   const optionsText = bet.options.map((option) => `- ${option.label}`).join('\n');
 
   return [
     `**[베팅 #${bet.id}] ${bet.title}**`,
     `참가 금액: ${bet.amount.toLocaleString()} 포인트 (전원 동일, 모드1)`,
-    `상태: ${STATUS_LABELS[bet.status] ?? bet.status} | 참가자 수: ${participantCount}명`,
+    `상태: ${STATUS_LABELS[bet.status] ?? bet.status}`,
+    formatParticipantsLine(participantUserIds),
     '',
     '아래 버튼으로 참가하세요 (선택은 비공개):',
     optionsText,

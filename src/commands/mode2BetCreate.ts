@@ -38,8 +38,9 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     );
 
     await interaction.reply({
-      content: buildMode2BetAnnouncement(bet),
+      content: buildMode2BetAnnouncement(bet, []),
       components: [row],
+      allowedMentions: { users: [] },
     });
 
     await logBetEvent(interaction.client, formatMode2Create(bet));

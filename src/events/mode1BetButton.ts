@@ -23,10 +23,18 @@ export async function handleMode1BetJoinButton(interaction: ButtonInteraction) {
       where: { id: betId },
       include: { options: true },
     });
-    const participantCount = await prisma.betEntry.count({ where: { betId } });
+    const entries = await prisma.betEntry.findMany({
+      where: { betId },
+      orderBy: { joinedAt: 'asc' },
+      select: { userId: true },
+    });
+    const participantUserIds = entries.map((entry) => entry.userId);
 
     await interaction.reply({ content: '베팅 참가 완료!', flags: MessageFlags.Ephemeral });
-    await interaction.message.edit({ content: buildBetAnnouncement(bet, participantCount) });
+    await interaction.message.edit({
+      content: buildBetAnnouncement(bet, participantUserIds),
+      allowedMentions: { users: [] },
+    });
 
     await logBetEvent(interaction.client, formatMode1Join(bet, interaction.user.id));
   } catch (error) {
