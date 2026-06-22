@@ -1,4 +1,5 @@
 import { type ChatInputCommandInteraction, MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { env } from '../config/env';
 import { logBetEvent } from '../discord/betLog';
 import { formatGamble } from '../discord/betLogMessages';
 import {
@@ -16,6 +17,11 @@ export const data = new SlashCommandBuilder()
   );
 
 export async function execute(interaction: ChatInputCommandInteraction) {
+  if (!env.GAMBLE_ENABLED) {
+    await interaction.reply({ content: '현재 점검 중입니다. 잠시 후 다시 시도해주세요.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+
   try {
     const result = await gamble({ discordId: interaction.user.id });
 
