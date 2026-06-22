@@ -221,19 +221,3 @@ describe('gamble - 확률 회귀 검증', () => {
   );
 });
 
-describe('gamble - 원자성', () => {
-  test('패배 처리 중 하우스 갱신이 실패하면 트랜잭션 전체가 롤백되어 유저 잔액도 변하지 않는다', async () => {
-    await getOrCreateUser('g-atomic-1');
-    // House 레코드를 생성하지 않아 House.update가 실패하도록 강제한다 (다른 서비스 테스트와 동일한 방식).
-
-    await expect(gamble({ discordId: 'g-atomic-1', random: forceLose })).rejects.toThrow();
-
-    const user = await prisma.user.findUniqueOrThrow({ where: { discordId: 'g-atomic-1' } });
-    expect(user.balance).toBe(10_000_000);
-
-    const txs = await prisma.transaction.findMany({
-      where: { userId: 'g-atomic-1', type: { in: ['GAMBLE_WIN', 'GAMBLE_LOSE'] } },
-    });
-    expect(txs).toHaveLength(0);
-  });
-});

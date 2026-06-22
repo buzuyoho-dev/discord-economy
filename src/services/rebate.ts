@@ -1,6 +1,6 @@
 import { TransactionType } from '@prisma/client';
 import { prisma } from '../db/client';
-import { applyHouseTransaction, HOUSE_ID } from './house';
+import { applyHouseTransaction, getOrCreateHouse } from './house';
 import { applyTransaction } from './ledger';
 
 const HOUSE_SHARE_THRESHOLD = 0.25;
@@ -55,7 +55,7 @@ export interface WeeklyRebateResult {
 
 export async function applyWeeklyRebate(now: Date = new Date()): Promise<WeeklyRebateResult> {
   return prisma.$transaction(async (tx) => {
-    const house = await tx.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    const house = await getOrCreateHouse(tx);
     const users = await tx.user.findMany({ select: { discordId: true, balance: true } });
     const totalUserBalance = users.reduce((sum, user) => sum + user.balance, 0);
 

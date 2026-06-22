@@ -9,7 +9,7 @@ import {
   NotBetCreatorError,
   normalizeLabel,
 } from './betShared';
-import { applyHouseTransaction, HOUSE_ID } from './house';
+import { applyHouseTransaction, getOrCreateHouse } from './house';
 import { applyTransaction, getOrCreateUser } from './ledger';
 
 export {
@@ -92,7 +92,7 @@ export async function placeMode2Bet(params: {
     }
 
     // 한도 체크는 차감과 같은 트랜잭션 안에서, 매번 새로 읽은 하우스 잔액을 기준으로 한다.
-    const house = await tx.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    const house = await getOrCreateHouse(tx);
     const limit = Math.floor(house.balance * 0.1);
     if (params.amount > limit) {
       throw new Mode2BetLimitExceededError(
