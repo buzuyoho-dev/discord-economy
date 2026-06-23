@@ -2,13 +2,8 @@ import { type ChatInputCommandInteraction, MessageFlags, SlashCommandBuilder } f
 import { env } from '../config/env';
 import { logBetEvent } from '../discord/betLog';
 import { formatGamble } from '../discord/betLogMessages';
-import {
-  DailyGambleLimitExceededError,
-  GAMBLE_AMOUNT,
-  gamble,
-  InsufficientBalanceForGambleError,
-  MAX_GAMBLES_PER_DAY,
-} from '../services/gamble';
+import { GAMBLE_AMOUNT, gamble, MAX_GAMBLES_PER_DAY } from '../services/gamble';
+import { gambleErrorMessage } from './gambleView';
 
 export const data = new SlashCommandBuilder()
   .setName('도박')
@@ -33,20 +28,10 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     await logBetEvent(interaction.client, formatGamble(interaction.user.id, result));
   } catch (error) {
-    if (error instanceof DailyGambleLimitExceededError) {
-      await interaction.reply({
-        content: `오늘 도박 횟수(${MAX_GAMBLES_PER_DAY}회)를 모두 사용했습니다. 내일 다시 시도해주세요.`,
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
+    const message = gambleErrorMessage(error);
+    if (!message) {
+      throw error;
     }
-    if (error instanceof InsufficientBalanceForGambleError) {
-      await interaction.reply({
-        content: '포인트가 부족하여 도박할 수 없습니다.',
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-    throw error;
+    await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
   }
 }

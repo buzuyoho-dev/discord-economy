@@ -11,7 +11,7 @@ export const EXTRA_GAMBLES_PER_PURCHASE = 1;
 const WIN_THRESHOLD = 0.5;
 
 export class DailyGambleLimitExceededError extends Error {
-  constructor(discordId: string, limit: number) {
+  constructor(discordId: string, public readonly limit: number) {
     super(`${discordId} already gambled ${limit} times today (KST)`);
     this.name = 'DailyGambleLimitExceededError';
   }
