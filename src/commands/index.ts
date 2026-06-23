@@ -8,6 +8,7 @@ import * as adminGrant from './adminGrant';
 import * as balance from './balance';
 import * as checkin from './checkin';
 import * as gamble from './gamble';
+import * as gambleExtraPurchase from './gambleExtraPurchase';
 import * as house from './house';
 import * as loanCreate from './loanCreate';
 import * as loanRepay from './loanRepay';
@@ -30,6 +31,7 @@ export const commands = new Map<string, Command>([
   [balance.data.name, balance],
   [checkin.data.name, checkin],
   [gamble.data.name, gamble],
+  [gambleExtraPurchase.data.name, gambleExtraPurchase],
   [house.data.name, house],
   [mode1BetCreate.data.name, mode1BetCreate],
   [mode1BetClose.data.name, mode1BetClose],

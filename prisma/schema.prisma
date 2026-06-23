@@ -20,6 +20,7 @@ enum TransactionType {
   ADMIN_GRANT
   GAMBLE_ROLLBACK
   ADMIN_RESET
+  GAMBLE_EXTRA_PURCHASE
 }
 
 model User {

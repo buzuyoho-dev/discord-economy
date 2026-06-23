@@ -6,11 +6,13 @@ import { applyTransaction, getOrCreateUser } from './ledger';
 
 export const GAMBLE_AMOUNT = 1_000_000;
 export const MAX_GAMBLES_PER_DAY = 2;
+export const GAMBLE_EXTRA_PURCHASE_PRICE = 500_000;
+export const EXTRA_GAMBLES_PER_PURCHASE = 1;
 const WIN_THRESHOLD = 0.5;
 
 export class DailyGambleLimitExceededError extends Error {
-  constructor(discordId: string) {
-    super(`${discordId} already gambled ${MAX_GAMBLES_PER_DAY} times today (KST)`);
+  constructor(discordId: string, limit: number) {
+    super(`${discordId} already gambled ${limit} times today (KST)`);
     this.name = 'DailyGambleLimitExceededError';
   }
 }
@@ -19,6 +21,20 @@ export class InsufficientBalanceForGambleError extends Error {
   constructor(discordId: string) {
     super(`${discordId} has insufficient balance to gamble`);
     this.name = 'InsufficientBalanceForGambleError';
+  }
+}
+
+export class AlreadyPurchasedGambleExtraError extends Error {
+  constructor(discordId: string) {
+    super(`${discordId} already purchased a gamble extra today (KST)`);
+    this.name = 'AlreadyPurchasedGambleExtraError';
+  }
+}
+
+export class InsufficientBalanceForGambleExtraPurchaseError extends Error {
+  constructor(discordId: string) {
+    super(`${discordId} has insufficient balance to purchase a gamble extra`);
+    this.name = 'InsufficientBalanceForGambleExtraPurchaseError';
   }
 }
 
@@ -56,7 +72,7 @@ export async function gamble(params: {
         type: { in: [TransactionType.GAMBLE_WIN, TransactionType.GAMBLE_LOSE] },
       },
       orderBy: { createdAt: 'desc' },
-      take: MAX_GAMBLES_PER_DAY,
+      take: MAX_GAMBLES_PER_DAY + EXTRA_GAMBLES_PER_PURCHASE,
     });
     const todaysGambles = recentGambles.filter((g) => isSameKstDay(g.createdAt, now));
 
@@ -74,8 +90,15 @@ export async function gamble(params: {
       todaysCount = todaysGambles.filter((g) => !rolledBackIds.has(g.id)).length;
     }
 
-    if (todaysCount >= MAX_GAMBLES_PER_DAY) {
-      throw new DailyGambleLimitExceededError(params.discordId);
+    const lastExtraPurchase = await tx.transaction.findFirst({
+      where: { userId: params.discordId, type: TransactionType.GAMBLE_EXTRA_PURCHASE },
+      orderBy: { createdAt: 'desc' },
+    });
+    const hasExtraToday = Boolean(lastExtraPurchase && isSameKstDay(lastExtraPurchase.createdAt, now));
+    const dailyLimit = MAX_GAMBLES_PER_DAY + (hasExtraToday ? EXTRA_GAMBLES_PER_PURCHASE : 0);
+
+    if (todaysCount >= dailyLimit) {
+      throw new DailyGambleLimitExceededError(params.discordId, dailyLimit);
     }
 
     const user = await tx.user.findUniqueOrThrow({ where: { discordId: params.discordId } });
@@ -112,5 +135,51 @@ export async function gamble(params: {
     });
 
     return { won: false, amount: -GAMBLE_AMOUNT, balanceAfter: updated.balance };
+  });
+}
+
+export interface GambleExtraPurchaseResult {
+  balanceAfter: number;
+}
+
+export async function purchaseGambleExtra(params: {
+  discordId: string;
+  now?: Date;
+}): Promise<GambleExtraPurchaseResult> {
+  const now = params.now ?? new Date();
+
+  await getOrCreateUser(params.discordId);
+
+  return prisma.$transaction(async (tx) => {
+    const lastPurchase = await tx.transaction.findFirst({
+      where: { userId: params.discordId, type: TransactionType.GAMBLE_EXTRA_PURCHASE },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (lastPurchase && isSameKstDay(lastPurchase.createdAt, now)) {
+      throw new AlreadyPurchasedGambleExtraError(params.discordId);
+    }
+
+    const user = await tx.user.findUniqueOrThrow({ where: { discordId: params.discordId } });
+    if (user.balance < GAMBLE_EXTRA_PURCHASE_PRICE) {
+      throw new InsufficientBalanceForGambleExtraPurchaseError(params.discordId);
+    }
+
+    const updated = await applyTransaction(tx, {
+      discordId: params.discordId,
+      type: TransactionType.GAMBLE_EXTRA_PURCHASE,
+      amount: -GAMBLE_EXTRA_PURCHASE_PRICE,
+      description: '도박추가 구매',
+      occurredAt: now,
+    });
+
+    await applyHouseTransaction(tx, {
+      type: TransactionType.GAMBLE_EXTRA_PURCHASE,
+      amount: GAMBLE_EXTRA_PURCHASE_PRICE,
+      description: `도박추가 구매 귀속: ${params.discordId}`,
+      occurredAt: now,
+    });
+
+    return { balanceAfter: updated.balance };
   });
 }
