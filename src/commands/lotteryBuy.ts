@@ -1,5 +1,6 @@
 import { type ChatInputCommandInteraction, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { prisma } from '../db/client';
+import { getLotteryStatusChannel } from '../discord/lotteryStatusChannel';
 import {
   AlreadyPurchasedLotteryError,
   InsufficientBalanceForLotteryError,
@@ -9,6 +10,7 @@ import {
   LOTTERY_TICKET_PRICE,
   purchaseLottery,
 } from '../services/lottery';
+import { updateLotteryStatusMessage } from '../services/lotteryStatusMessage';
 
 export const data = new SlashCommandBuilder()
   .setName('복권구매')
@@ -49,6 +51,11 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     const state = await prisma.lotteryState.findUnique({ where: { id: 1 } });
     const carryover = state?.currentJackpot ?? 0;
+
+    const statusChannel = await getLotteryStatusChannel(interaction.client);
+    if (statusChannel) {
+      await updateLotteryStatusMessage({ drawDate: result.drawDate, channel: statusChannel });
+    }
 
     await interaction.editReply({
       content: [

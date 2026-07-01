@@ -2,6 +2,7 @@ import { afterAll, beforeEach } from 'vitest';
 import { prisma } from '../src/db/client';
 
 beforeEach(async () => {
+  await prisma.lotteryStatusMessage.deleteMany();
   await prisma.lotteryTicket.deleteMany();
   await prisma.lotteryState.deleteMany();
   await prisma.loan.deleteMany();
