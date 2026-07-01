@@ -21,6 +21,9 @@ enum TransactionType {
   GAMBLE_ROLLBACK
   ADMIN_RESET
   GAMBLE_EXTRA_PURCHASE
+  LOTTERY_PURCHASE
+  LOTTERY_WIN
+  LOTTERY_TAX
 }
 
 model User {
@@ -156,4 +159,21 @@ model Loan {
 
   @@index([borrowerId])
   @@index([lenderId])
+}
+
+model LotteryTicket {
+  id           String   @id @default(cuid())
+  userId       String
+  chosenNumber Int
+  amount       Int
+  drawDate     DateTime
+  purchasedAt  DateTime @default(now())
+  settled      Boolean  @default(false)
+
+  @@unique([userId, drawDate])
+}
+
+model LotteryState {
+  id             Int @id @default(1)
+  currentJackpot Int @default(0)
 }

@@ -16,4 +16,5 @@ export const env = {
   BET_LOG_CHANNEL_ID: process.env.BET_LOG_CHANNEL_ID,
   ADMIN_DISCORD_ID: process.env.ADMIN_DISCORD_ID,
   GAMBLE_ENABLED: process.env.GAMBLE_ENABLED === 'true',
+  LOTTERY_CHANNEL_ID: process.env.LOTTERY_CHANNEL_ID,
 };
