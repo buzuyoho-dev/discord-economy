@@ -4,6 +4,7 @@ import { NotAdminError } from './adminGrant';
 import { BetNotFoundError, BetNotSettledError } from './betShared';
 import { applyHouseTransaction } from './house';
 import { applyTransaction } from './ledger';
+import { restoreCouponsUsedInBet } from './coupon';
 import { computeMode1Settlement, computeUnifiedSettlement } from './mode1Bet';
 import { computeMode2Settlement } from './mode2Bet';
 
@@ -74,9 +75,9 @@ function buildCorrectionPlan(found: SettledBetLookup): SettlementCancellationPla
         .filter((entry) => (entry.payout ?? 0) > 0)
         .map((entry) => ({ userId: entry.userId, amount: -(entry.payout ?? 0) }));
 
-      // 하우스 반영분(세금 + 내림 잔돈)은 BetEntry에 저장되어 있지 않으므로, settleUnifiedBet과
-      // 동일한 입력(참가자별 amount, winningOptionId)으로부터 결정적으로 재계산한다.
-      const { houseGain } = computeUnifiedSettlement({
+      // 세금(+내림 잔돈)은 BetEntry에 저장되어 있지 않으므로, settleUnifiedBet과 동일한
+      // 입력(참가자별 amount, winningOptionId)으로부터 기본 배당을 결정적으로 재계산한다.
+      const { payoutByUserId: basePayoutByUserId, houseGain } = computeUnifiedSettlement({
         entries: bet.entries.map((entry) => ({
           userId: entry.userId,
           optionId: entry.optionId,
@@ -85,12 +86,22 @@ function buildCorrectionPlan(found: SettledBetLookup): SettlementCancellationPla
         winningOptionId: bet.winningOptionId,
       });
 
+      // 베팅2배쿠폰으로 지급된 추가 보너스분(하우스에서 차감됐던 금액)도 되돌려야 한다.
+      // 저장된 실지급액(entry.payout)과 방금 재계산한 기본 배당의 차이가 곧 쿠폰 보너스다.
+      const totalCouponBonusPaid = bet.entries.reduce((sum, entry) => {
+        const basePayout = basePayoutByUserId.get(entry.userId) ?? 0;
+        const extra = (entry.payout ?? 0) - basePayout;
+        return sum + (extra > 0 ? extra : 0);
+      }, 0);
+
+      const houseDelta = totalCouponBonusPaid - (houseGain > 0 ? houseGain : 0);
+
       return {
         mode: 1,
         betId: bet.id,
         title: bet.title,
         corrections,
-        houseDelta: houseGain > 0 ? -houseGain : 0,
+        houseDelta,
       };
     }
 
@@ -186,6 +197,10 @@ export async function cancelSettlement(params: {
     }
 
     if (found.mode === 1) {
+      // UNIFIED 베팅이었다면 이 베팅에서 소진된 베팅2배쿠폰을 되돌려준다 (레거시 모드1은
+      // 애초에 쿠폰을 쓸 수 없으므로 안전하게 0건 처리됨).
+      await restoreCouponsUsedInBet(tx, params.betId);
+
       await tx.bet.update({
         where: { id: params.betId },
         data: { status: 'CLOSED', winningOptionId: null, settledAt: null },

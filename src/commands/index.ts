@@ -7,6 +7,9 @@ import type {
 import * as adminGrant from './adminGrant';
 import * as balance from './balance';
 import * as checkin from './checkin';
+import * as couponList from './couponList';
+import * as economyConfigSet from './economyConfigSet';
+import * as economyConfigView from './economyConfigView';
 import * as gamble from './gamble';
 import * as gambleExtraPurchase from './gambleExtraPurchase';
 import * as house from './house';
@@ -45,4 +48,7 @@ export const commands = new Map<string, Command>([
   [loanRepay.data.name, loanRepay],
   [ranking.data.name, ranking],
   [settlementCancel.data.name, settlementCancel],
+  [economyConfigSet.data.name, economyConfigSet],
+  [economyConfigView.data.name, economyConfigView],
+  [couponList.data.name, couponList],
 ]);

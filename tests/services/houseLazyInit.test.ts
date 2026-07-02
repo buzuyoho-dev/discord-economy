@@ -11,8 +11,8 @@ import {
   placeMode2Bet,
   settleMode2Bet,
 } from '../../src/services/mode2Bet';
-import { applyWeeklyRebate } from '../../src/services/rebate';
 import { transferPoints } from '../../src/services/transfer';
+import { weeklyDistribution } from '../../src/services/weeklyDistribution';
 
 const forceWin = () => 0;
 const forceLose = () => 0.99;
@@ -185,11 +185,12 @@ describe('House row 없이 처음 실행 - 양도', () => {
   });
 });
 
-describe('House row 없이 처음 실행 - 환원', () => {
+describe('House row 없이 처음 실행 - 주간 환급/쿠폰', () => {
   test('유저도 House도 전혀 없는 완전히 빈 DB에서 호출해도 크래시하지 않는다', async () => {
-    const result = await applyWeeklyRebate();
+    const result = await weeklyDistribution();
 
-    expect(result.rebated).toBe(false);
+    expect(result.distributed).toBe(false);
+    expect(result.couponsIssued).toBe(0);
 
     const house = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
     expect(house.balance).toBe(0);

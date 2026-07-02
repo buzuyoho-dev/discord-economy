@@ -2,7 +2,7 @@ import { Client, GatewayIntentBits } from 'discord.js';
 import { env } from './config/env';
 import { handleInteractionCreate } from './events/interactionCreate';
 import { scheduleLotteryDraw } from './jobs/lotteryDraw';
-import { scheduleWeeklyRebate } from './jobs/weeklyRebate';
+import { scheduleWeeklyDistribution } from './jobs/weeklyDistribution';
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
@@ -10,7 +10,7 @@ const client = new Client({
 
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user?.tag}`);
-  await scheduleWeeklyRebate(client);
+  await scheduleWeeklyDistribution(client);
   await scheduleLotteryDraw(client);
 });
 

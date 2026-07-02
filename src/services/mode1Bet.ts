@@ -9,7 +9,8 @@ import {
   normalizeLabel,
   NotBetCreatorError,
 } from './betShared';
-import { applyHouseTransaction } from './house';
+import { tryConsumeCoupon } from './coupon';
+import { applyHouseTransaction, getOrCreateHouse } from './house';
 import { applyTransaction, getOrCreateUser } from './ledger';
 
 export {
@@ -266,6 +267,7 @@ export async function joinUnifiedBet(params: {
   userId: string;
   optionId: number;
   amount: number;
+  couponId?: string;
 }) {
   if (!Number.isInteger(params.amount) || params.amount <= 0) {
     throw new InvalidBetOptionsError('amount must be a positive integer');
@@ -311,6 +313,8 @@ export async function joinUnifiedBet(params: {
           userId: params.userId,
           optionId: params.optionId,
           amount: params.amount,
+          // 참가 시점엔 쿠폰을 소진하지 않는다 - 정산 시 승리한 경우에만 최종 검증 후 소진된다.
+          couponId: params.couponId,
         },
       });
     } catch (error) {
@@ -427,11 +431,53 @@ export async function settleUnifiedBet(params: {
       winningOptionId: params.winningOptionId,
     });
 
-    for (const [userId, payout] of payoutByUserId) {
+    // 베팅2배쿠폰: 승자 처리 루프 내부에서만 검증/소진한다. 패자는 이 루프를 타지 않으므로
+    // 쿠폰이 자동으로 보존된다(별도 롤백 로직 불필요).
+    const finalPayoutByUserId = new Map<string, number>();
+    let house = await getOrCreateHouse(tx);
+
+    for (const entry of entries) {
+      if (entry.optionId !== params.winningOptionId) {
+        continue;
+      }
+
+      const basePayout = payoutByUserId.get(entry.userId) ?? 0;
+      let finalPayout = basePayout;
+
+      if (entry.couponId) {
+        // 순수익(배당금 - 원금) 부분만 2배 - 추가로 지급되는 보너스분은 하우스 잔고에서
+        // 차감된다. 하우스가 감당할 수 없으면(파산 방지) 쿠폰을 소진하지 않고 원래 배당
+        // 그대로 지급한다 - 무효한 쿠폰일 때와 동일한 폴백이다.
+        const bonus = basePayout - entry.amount;
+        const houseCanAfford = bonus > 0 && house.balance >= bonus;
+
+        if (houseCanAfford) {
+          const consumed = await tryConsumeCoupon(tx, {
+            couponId: entry.couponId,
+            userId: entry.userId,
+            betId: bet.id,
+            now: occurredAt,
+          });
+          if (consumed) {
+            house = await applyHouseTransaction(tx, {
+              type: TransactionType.BET,
+              amount: -bonus,
+              description: `베팅2배쿠폰 보너스 지급: ${bet.title}`,
+              occurredAt,
+            });
+            finalPayout = entry.amount + bonus * 2;
+          }
+        }
+        // 쿠폰이 무효하거나 하우스가 보너스를 감당할 수 없으면 조용히 무시하고
+        // 원래 배당(basePayout) 그대로 지급한다.
+      }
+
+      finalPayoutByUserId.set(entry.userId, finalPayout);
+
       await applyTransaction(tx, {
-        discordId: userId,
+        discordId: entry.userId,
         type: TransactionType.BET,
-        amount: payout,
+        amount: finalPayout,
         description: `베팅 정산: ${bet.title}`,
         occurredAt,
       });
@@ -440,7 +486,7 @@ export async function settleUnifiedBet(params: {
     for (const entry of entries) {
       await tx.betEntry.update({
         where: { id: entry.id },
-        data: { payout: payoutByUserId.get(entry.userId) ?? 0 },
+        data: { payout: finalPayoutByUserId.get(entry.userId) ?? 0 },
       });
     }
 
@@ -463,7 +509,7 @@ export async function settleUnifiedBet(params: {
       entryResults: entries.map((entry) => ({
         userId: entry.userId,
         optionId: entry.optionId,
-        creditedAmount: payoutByUserId.get(entry.userId) ?? 0,
+        creditedAmount: finalPayoutByUserId.get(entry.userId) ?? 0,
       })),
     };
   });

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { prisma } from '../../src/db/client';
 import { HOUSE_ID } from '../../src/services/house';
-import { getOrCreateUser } from '../../src/services/ledger';
+import { getOrCreateUser, STARTING_BALANCE } from '../../src/services/ledger';
 import {
   AlreadyJoinedError,
   BetNotClosedError,
@@ -744,5 +744,236 @@ describe('settleUnifiedBet - 원자성', () => {
 
     const betAfter = await prisma.bet.findUniqueOrThrow({ where: { id: bet.id } });
     expect(betAfter.status).toBe('CLOSED'); // SETTLED로 바뀌지 않음
+  });
+});
+
+describe('joinUnifiedBet - 베팅2배쿠폰 선택', () => {
+  test('참가 시 couponId를 선택해도 이 시점엔 소진 처리하지 않는다', async () => {
+    const bet = await createBet({ creatorId: 'coupon-join-creator', title: '쿠폰참가', options: ['A', 'B'] });
+    const coupon = await prisma.bettingDoubleCoupon.create({
+      data: { userId: 'coupon-joiner', expiresAt: new Date('2026-07-20T00:00:00.000Z') },
+    });
+
+    const entry = await joinUnifiedBet({
+      betId: bet.id,
+      userId: 'coupon-joiner',
+      optionId: bet.options[0].id,
+      amount: 1_000_000,
+      couponId: coupon.id,
+    });
+
+    expect(entry.couponId).toBe(coupon.id);
+
+    const unchanged = await prisma.bettingDoubleCoupon.findUniqueOrThrow({ where: { id: coupon.id } });
+    expect(unchanged.usedAt).toBeNull();
+  });
+});
+
+describe('settleUnifiedBet - 베팅2배쿠폰 사용', () => {
+  const NOW = new Date('2026-07-05T00:00:00.000Z');
+
+  async function setHouseBalance(balance: number) {
+    await prisma.house.upsert({
+      where: { id: HOUSE_ID },
+      create: { id: HOUSE_ID, balance },
+      update: { balance },
+    });
+  }
+
+  test('쿠폰 사용 후 승리하면 순수익만 2배로 지급되고, 추가분은 하우스 잔고에서 차감되고 쿠폰이 소진된다', async () => {
+    await setHouseBalance(2_000_000); // 보너스(950,000)를 감당할 수 있을 만큼 미리 채워둔다
+    const bet = await createBet({ creatorId: 'coupon-c', title: '쿠폰승리', options: ['A', 'B'] });
+    const coupon = await prisma.bettingDoubleCoupon.create({
+      data: { userId: 'coupon-c-winner', expiresAt: new Date('2026-07-20T00:00:00.000Z') },
+    });
+    await joinUnifiedBet({
+      betId: bet.id,
+      userId: 'coupon-c-winner',
+      optionId: bet.options[0].id,
+      amount: 3_000_000,
+      couponId: coupon.id,
+    });
+    await joinUnifiedBet({
+      betId: bet.id,
+      userId: 'coupon-c-loser',
+      optionId: bet.options[1].id,
+      amount: 1_000_000,
+    });
+    await closeBet({ betId: bet.id, requestedBy: 'coupon-c' });
+
+    await settleUnifiedBet({
+      betId: bet.id,
+      requestedBy: 'coupon-c',
+      winningOptionId: bet.options[0].id,
+      now: NOW,
+    });
+
+    // losersTotal=1,000,000, tax=50,000, distributable=950,000, 단독 승자라 bonus=950,000
+    // 쿠폰 적용 시 순수익만 2배: bonus*2=1,900,000 -> payout=3,000,000+1,900,000=4,900,000
+    const winner = await prisma.user.findUniqueOrThrow({ where: { discordId: 'coupon-c-winner' } });
+    expect(winner.balance).toBe(STARTING_BALANCE - 3_000_000 + 4_900_000);
+
+    const entry = await prisma.betEntry.findUniqueOrThrow({
+      where: { betId_userId: { betId: bet.id, userId: 'coupon-c-winner' } },
+    });
+    expect(entry.payout).toBe(4_900_000);
+
+    // 추가 보너스분(950,000)은 하우스에서 차감되고, 세금(50,000)은 그대로 하우스로 들어온다
+    // 최종 하우스 잔고 = 2,000,000 - 950,000(보너스 지급) + 50,000(세금) = 1,100,000
+    const house = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(house.balance).toBe(1_100_000);
+
+    const bonusTx = await prisma.houseTransaction.findFirst({
+      where: { description: { contains: '쿠폰' } },
+    });
+    expect(bonusTx?.amount).toBe(-950_000);
+
+    const usedCoupon = await prisma.bettingDoubleCoupon.findUniqueOrThrow({ where: { id: coupon.id } });
+    expect(usedCoupon.usedAt?.toISOString()).toBe(NOW.toISOString());
+    expect(usedCoupon.usedInBetId).toBe(bet.id);
+  });
+
+  test('하우스 잔고가 보너스를 감당할 수 없으면 쿠폰을 소진하지 않고 원래 배당 그대로 지급한다', async () => {
+    // House는 지연 생성 기본값(0)으로 남겨둔다 - bonus(950,000)를 감당할 수 없는 상황.
+    const bet = await createBet({ creatorId: 'coupon-f', title: '쿠폰하우스부족', options: ['A', 'B'] });
+    const coupon = await prisma.bettingDoubleCoupon.create({
+      data: { userId: 'coupon-f-winner', expiresAt: new Date('2026-07-20T00:00:00.000Z') },
+    });
+    await joinUnifiedBet({
+      betId: bet.id,
+      userId: 'coupon-f-winner',
+      optionId: bet.options[0].id,
+      amount: 3_000_000,
+      couponId: coupon.id,
+    });
+    await joinUnifiedBet({
+      betId: bet.id,
+      userId: 'coupon-f-loser',
+      optionId: bet.options[1].id,
+      amount: 1_000_000,
+    });
+    await closeBet({ betId: bet.id, requestedBy: 'coupon-f' });
+
+    await settleUnifiedBet({
+      betId: bet.id,
+      requestedBy: 'coupon-f',
+      winningOptionId: bet.options[0].id,
+      now: NOW,
+    });
+
+    // 쿠폰이 무시되어 원래 배당(3,000,000+950,000=3,950,000)만 지급된다
+    const winner = await prisma.user.findUniqueOrThrow({ where: { discordId: 'coupon-f-winner' } });
+    expect(winner.balance).toBe(STARTING_BALANCE - 3_000_000 + 3_950_000);
+
+    // 하우스는 세금(50,000)만 받고, 보너스 지급으로 인한 차감은 없다
+    const house = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(house.balance).toBe(50_000);
+
+    // 쿠폰은 소진되지 않고 그대로 보존되어 다음에 재사용할 수 있다
+    const preservedCoupon = await prisma.bettingDoubleCoupon.findUniqueOrThrow({ where: { id: coupon.id } });
+    expect(preservedCoupon.usedAt).toBeNull();
+    expect(preservedCoupon.usedInBetId).toBeNull();
+  });
+
+  test('쿠폰 사용 후 패배하면 쿠폰이 그대로 보존되어 다음 베팅에 재사용할 수 있다', async () => {
+    const bet = await createBet({ creatorId: 'coupon-d', title: '쿠폰패배', options: ['A', 'B'] });
+    const coupon = await prisma.bettingDoubleCoupon.create({
+      data: { userId: 'coupon-d-loser', expiresAt: new Date('2026-07-20T00:00:00.000Z') },
+    });
+    await joinUnifiedBet({
+      betId: bet.id,
+      userId: 'coupon-d-loser',
+      optionId: bet.options[1].id,
+      amount: 1_000_000,
+      couponId: coupon.id,
+    });
+    await joinUnifiedBet({
+      betId: bet.id,
+      userId: 'coupon-d-winner',
+      optionId: bet.options[0].id,
+      amount: 3_000_000,
+    });
+    await closeBet({ betId: bet.id, requestedBy: 'coupon-d' });
+
+    await settleUnifiedBet({
+      betId: bet.id,
+      requestedBy: 'coupon-d',
+      winningOptionId: bet.options[0].id,
+      now: NOW,
+    });
+
+    const entry = await prisma.betEntry.findUniqueOrThrow({
+      where: { betId_userId: { betId: bet.id, userId: 'coupon-d-loser' } },
+    });
+    expect(entry.payout).toBe(0);
+
+    const preservedCoupon = await prisma.bettingDoubleCoupon.findUniqueOrThrow({ where: { id: coupon.id } });
+    expect(preservedCoupon.usedAt).toBeNull();
+    expect(preservedCoupon.usedInBetId).toBeNull();
+  });
+
+  test('만료되거나 이미 소진된 쿠폰이면 무시되고 원래 배당 그대로 지급된다', async () => {
+    // 하우스 잔고는 넉넉히 채워둔다 - 이 테스트가 검증하려는 건 "쿠폰 자체가 무효"인 경우이지,
+    // 하우스 잔고 부족으로 인한 폴백이 아니어야 한다.
+    await setHouseBalance(10_000_000);
+    const expiredCoupon = await prisma.bettingDoubleCoupon.create({
+      data: { userId: 'coupon-e-winner-1', expiresAt: new Date('2026-07-01T00:00:00.000Z') },
+    });
+    const alreadyUsedCoupon = await prisma.bettingDoubleCoupon.create({
+      data: {
+        userId: 'coupon-e-winner-2',
+        expiresAt: new Date('2026-07-20T00:00:00.000Z'),
+        usedAt: new Date('2026-07-01T00:00:00.000Z'),
+        usedInBetId: 999,
+      },
+    });
+
+    const bet = await createBet({ creatorId: 'coupon-e', title: '쿠폰무효', options: ['A', 'B'] });
+    await joinUnifiedBet({
+      betId: bet.id,
+      userId: 'coupon-e-winner-1',
+      optionId: bet.options[0].id,
+      amount: 1_000_000,
+      couponId: expiredCoupon.id,
+    });
+    await joinUnifiedBet({
+      betId: bet.id,
+      userId: 'coupon-e-winner-2',
+      optionId: bet.options[0].id,
+      amount: 1_000_000,
+      couponId: alreadyUsedCoupon.id,
+    });
+    await joinUnifiedBet({
+      betId: bet.id,
+      userId: 'coupon-e-loser',
+      optionId: bet.options[1].id,
+      amount: 2_000_000,
+    });
+    await closeBet({ betId: bet.id, requestedBy: 'coupon-e' });
+
+    const settled = await settleUnifiedBet({
+      betId: bet.id,
+      requestedBy: 'coupon-e',
+      winningOptionId: bet.options[0].id,
+      now: NOW,
+    });
+
+    // losersTotal=2,000,000, tax=100,000, distributable=1,900,000, 승자 2명 동일 비율(1M/2M)
+    // 쿠폰이 무효라 보너스 배가 없이 원래 배당(950,000)만 지급되어야 한다
+    const winner1 = await prisma.user.findUniqueOrThrow({ where: { discordId: 'coupon-e-winner-1' } });
+    const winner2 = await prisma.user.findUniqueOrThrow({ where: { discordId: 'coupon-e-winner-2' } });
+    expect(winner1.balance).toBe(STARTING_BALANCE - 1_000_000 + 1_950_000);
+    expect(winner2.balance).toBe(STARTING_BALANCE - 1_000_000 + 1_950_000);
+    expect(settled.status).toBe('SETTLED');
+
+    // 하우스는 세금(100,000)만 받는다 - 쿠폰이 무효라 보너스 차감은 없다
+    const house = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(house.balance).toBe(10_000_000 + 100_000);
+
+    // 무효했던 쿠폰들은 상태 변화가 없어야 한다 (조용히 무시)
+    const stillExpired = await prisma.bettingDoubleCoupon.findUniqueOrThrow({ where: { id: expiredCoupon.id } });
+    expect(stillExpired.usedAt).toBeNull();
+    const stillUsed = await prisma.bettingDoubleCoupon.findUniqueOrThrow({ where: { id: alreadyUsedCoupon.id } });
+    expect(stillUsed.usedInBetId).toBe(999); // 원래 기록 그대로
   });
 });

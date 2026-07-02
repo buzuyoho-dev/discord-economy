@@ -392,4 +392,55 @@ describe('cancelSettlement - 통합(UNIFIED) 베팅', () => {
 
     expect(preview.corrections).toEqual([{ userId: 'u-payout-winner', amount: -1_234_567 }]);
   });
+
+  test('쿠폰을 써서 이긴 정산이 취소되면 쿠폰이 되돌아오고, 하우스에서 차감됐던 보너스분도 함께 반환된다', async () => {
+    await setHouseBalance(2_000_000); // 보너스(950,000)를 감당할 수 있을 만큼 미리 채워둔다
+    const bet = await createBet({ creatorId: 'u-coupon-creator', title: 'u-coupon-title', options: ['A', 'B'] });
+    const coupon = await prisma.bettingDoubleCoupon.create({
+      data: { userId: 'u-coupon-winner', expiresAt: new Date('2026-07-20T00:00:00.000Z') },
+    });
+    await joinUnifiedBet({
+      betId: bet.id,
+      userId: 'u-coupon-winner',
+      optionId: bet.options[0].id,
+      amount: 3_000_000,
+      couponId: coupon.id,
+    });
+    await joinUnifiedBet({
+      betId: bet.id,
+      userId: 'u-coupon-loser',
+      optionId: bet.options[1].id,
+      amount: 1_000_000,
+    });
+    await closeBet({ betId: bet.id, requestedBy: 'u-coupon-creator' });
+    await settleUnifiedBet({
+      betId: bet.id,
+      requestedBy: 'u-coupon-creator',
+      winningOptionId: bet.options[0].id,
+    });
+
+    const consumedCoupon = await prisma.bettingDoubleCoupon.findUniqueOrThrow({ where: { id: coupon.id } });
+    expect(consumedCoupon.usedAt).not.toBeNull();
+    expect(consumedCoupon.usedInBetId).toBe(bet.id);
+
+    // 정산 직후: 2,000,000 - 950,000(쿠폰 보너스 지급) + 50,000(세금) = 1,100,000
+    const houseAfterSettle = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(houseAfterSettle.balance).toBe(1_100_000);
+
+    const winnerAfterSettle = await prisma.user.findUniqueOrThrow({ where: { discordId: 'u-coupon-winner' } });
+    expect(winnerAfterSettle.balance).toBe(STARTING_BALANCE - 3_000_000 + 4_900_000);
+
+    await cancelSettlement({ betId: bet.id, requestedBy: ADMIN_ID, adminDiscordId: ADMIN_ID });
+
+    const restoredCoupon = await prisma.bettingDoubleCoupon.findUniqueOrThrow({ where: { id: coupon.id } });
+    expect(restoredCoupon.usedAt).toBeNull();
+    expect(restoredCoupon.usedInBetId).toBeNull();
+
+    const winnerAfterCancel = await prisma.user.findUniqueOrThrow({ where: { discordId: 'u-coupon-winner' } });
+    expect(winnerAfterCancel.balance).toBe(STARTING_BALANCE - 3_000_000); // 참가비 차감만 남음
+
+    // 세금 환수(+50,000) + 쿠폰 보너스 환수(+950,000) = 정산 전 잔고(2,000,000)로 정확히 복귀
+    const houseAfterCancel = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(houseAfterCancel.balance).toBe(2_000_000);
+  });
 });

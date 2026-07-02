@@ -11,8 +11,10 @@ import { handleSettlementCancelButton, isSettlementCancelButton } from './settle
 import {
   handleUnifiedBetAmountModal,
   handleUnifiedBetChooseButton,
+  handleUnifiedBetCouponChoiceButton,
   isUnifiedBetAmountModal,
   isUnifiedBetChooseButton,
+  isUnifiedBetCouponChoiceButton,
 } from './unifiedBetInteraction';
 
 async function replyWithGenericError(interaction: Interaction, context: string, error: unknown) {
@@ -76,6 +78,15 @@ export async function handleInteractionCreate(interaction: Interaction) {
       await handleUnifiedBetChooseButton(interaction);
     } catch (error) {
       await replyWithGenericError(interaction, '베팅 옵션 선택 처리 중 오류 발생', error);
+    }
+    return;
+  }
+
+  if (interaction.isButton() && isUnifiedBetCouponChoiceButton(interaction.customId)) {
+    try {
+      await handleUnifiedBetCouponChoiceButton(interaction);
+    } catch (error) {
+      await replyWithGenericError(interaction, '베팅2배쿠폰 사용 선택 처리 중 오류 발생', error);
     }
     return;
   }

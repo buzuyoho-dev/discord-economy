@@ -48,8 +48,30 @@ model Transaction {
 }
 
 model House {
-  id      String @id
-  balance Int    @default(0)
+  id                 String    @id
+  balance            Int       @default(0)
+  lastRebateBalance  Int       @default(0)
+  lastRebateAt       DateTime?
+}
+
+// 싱글톤 - row는 항상 1개("SINGLETON")만 존재한다.
+model EconomyConfig {
+  id              String   @id @default("SINGLETON")
+  rebateRate      Float    @default(0.05)
+  lowerTierWeight Float    @default(1.5)
+  updatedAt       DateTime @updatedAt
+}
+
+// 유저 노출명: "베팅2배쿠폰"
+model BettingDoubleCoupon {
+  id          String    @id @default(cuid())
+  userId      String
+  issuedAt    DateTime  @default(now())
+  expiresAt   DateTime
+  usedAt      DateTime?
+  usedInBetId Int?
+
+  @@index([userId])
 }
 
 model HouseTransaction {
@@ -110,6 +132,7 @@ model BetEntry {
   option   BetOption @relation(fields: [optionId], references: [id])
   amount   Int?
   payout   Int?
+  couponId String?
   joinedAt DateTime  @default(now())
 
   @@unique([betId, userId])
