@@ -1,6 +1,7 @@
 export class BetNotFoundError extends Error {}
 export class BetNotOpenError extends Error {}
 export class BetNotClosedError extends Error {}
+export class BetNotSettledError extends Error {}
 export class AlreadyJoinedError extends Error {}
 export class NotBetCreatorError extends Error {}
 export class InvalidBetOptionsError extends Error {}

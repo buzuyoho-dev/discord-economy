@@ -103,6 +103,52 @@ export function formatAdminGrant(targetId: string, amount: number, reason: strin
   return `💰 **[관리자 지급]** <@${targetId}> +${amount.toLocaleString()} (사유: ${reason})`;
 }
 
+interface SettlementCancellationPlan {
+  mode: 1 | 2;
+  betId: number;
+  title: string;
+  corrections: { userId: string; amount: number }[];
+  houseDelta: number;
+}
+
+function formatHouseDeltaLine(houseDelta: number, prefix: string): string | null {
+  if (houseDelta === 0) {
+    return null;
+  }
+  const sign = houseDelta > 0 ? '+' : '';
+  return `${prefix}: ${sign}${houseDelta.toLocaleString()}P`;
+}
+
+export function formatSettlementCancelPreview(plan: SettlementCancellationPlan): string {
+  const totalOffset = plan.corrections.reduce((sum, c) => sum + Math.abs(c.amount), 0);
+
+  return [
+    `⚠️ **[정산취소 확인]** 베팅#${plan.betId} (${plan.title})`,
+    `모드: ${plan.mode === 1 ? '모드1' : '모드2'}`,
+    `되돌릴 참가자: ${plan.corrections.length}명`,
+    `총 상쇄 금액: ${totalOffset.toLocaleString()}P`,
+    formatHouseDeltaLine(plan.houseDelta, '하우스 반영') ?? '하우스 반영: 없음',
+    '',
+    '아래 버튼으로 최종 확인해주세요. 확인 시 참가자 잔액과 베팅 상태가 즉시 되돌아갑니다.',
+  ].join('\n');
+}
+
+export function formatSettlementCancelLog(plan: SettlementCancellationPlan, adminId: string): string {
+  const lines = plan.corrections.map((correction) => {
+    const sign = correction.amount >= 0 ? '+' : '';
+    return `- <@${correction.userId}>: ${sign}${correction.amount.toLocaleString()}P`;
+  });
+  const houseLine = formatHouseDeltaLine(plan.houseDelta, '하우스');
+
+  return [
+    `🔧 정산 취소: 베팅#${plan.betId} (관리자: <@${adminId}>), 사유: 정산 오류 정정`,
+    `베팅 제목: ${plan.title}`,
+    '조정 내역:',
+    ...(lines.length > 0 ? lines : ['(대상자 없음)']),
+    ...(houseLine ? [houseLine] : []),
+  ].join('\n');
+}
+
 export function formatGamble(userId: string, result: { won: boolean; amount: number }): string {
   const outcome = result.won ? '승' : '패';
   const sign = result.amount >= 0 ? '+' : '';

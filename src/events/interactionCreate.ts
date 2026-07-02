@@ -7,6 +7,7 @@ import {
   isMode2BetAmountModal,
   isMode2BetChooseButton,
 } from './mode2BetInteraction';
+import { handleSettlementCancelButton, isSettlementCancelButton } from './settlementCancelButton';
 
 async function replyWithGenericError(interaction: Interaction, context: string, error: unknown) {
   console.error(context, error);
@@ -51,6 +52,15 @@ export async function handleInteractionCreate(interaction: Interaction) {
       await handleMode2BetAmountModal(interaction);
     } catch (error) {
       await replyWithGenericError(interaction, '모드2 베팅 금액 입력 처리 중 오류 발생', error);
+    }
+    return;
+  }
+
+  if (interaction.isButton() && isSettlementCancelButton(interaction.customId)) {
+    try {
+      await handleSettlementCancelButton(interaction);
+    } catch (error) {
+      await replyWithGenericError(interaction, '정산취소 버튼 처리 중 오류 발생', error);
     }
     return;
   }

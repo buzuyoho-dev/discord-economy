@@ -20,6 +20,7 @@ import * as mode2BetClose from './mode2BetClose';
 import * as mode2BetCreate from './mode2BetCreate';
 import * as mode2BetSettle from './mode2BetSettle';
 import * as ranking from './ranking';
+import * as settlementCancel from './settlementCancel';
 import * as transfer from './transfer';
 
 export interface Command {
@@ -45,4 +46,5 @@ export const commands = new Map<string, Command>([
   [loanCreate.data.name, loanCreate],
   [loanRepay.data.name, loanRepay],
   [ranking.data.name, ranking],
+  [settlementCancel.data.name, settlementCancel],
 ]);

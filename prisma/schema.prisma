@@ -24,6 +24,7 @@ enum TransactionType {
   LOTTERY_PURCHASE
   LOTTERY_WIN
   LOTTERY_TAX
+  SETTLEMENT_CORRECTION
 }
 
 model User {

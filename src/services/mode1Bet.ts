@@ -26,6 +26,40 @@ export class InvalidOptionError extends Error {}
 
 const TAX_RATE = 0.05;
 
+export interface Mode1SettlementCalculation {
+  payoutByUserId: Map<string, number>;
+  totalTax: number;
+}
+
+// settleBet과 정산취소(재계산) 양쪽에서 공유하는 순수 함수 - 무효(VOID) 케이스는 다루지 않는다
+// (winners가 최소 1명 있는, 즉 SETTLED로 확정된 정산만 이 함수를 거친다).
+export function computeMode1Settlement(params: {
+  entries: { userId: string; optionId: number; joinedAt: Date }[];
+  betAmount: number;
+  winningOptionId: number;
+}): Mode1SettlementCalculation {
+  const winners = params.entries.filter((entry) => entry.optionId === params.winningOptionId);
+  const totalPool = params.entries.length * params.betAmount;
+  const winnersByJoinOrder = [...winners].sort(
+    (a, b) => a.joinedAt.getTime() - b.joinedAt.getTime()
+  );
+  const basePayout = Math.floor(totalPool / winnersByJoinOrder.length);
+  const remainder = totalPool % winnersByJoinOrder.length;
+  const payoutByUserId = new Map<string, number>();
+  let totalTax = 0;
+
+  for (let i = 0; i < winnersByJoinOrder.length; i++) {
+    const grossPayout = basePayout + (i < remainder ? 1 : 0);
+    const profit = grossPayout - params.betAmount;
+    const tax = Math.round(profit * TAX_RATE);
+    const netPayout = grossPayout - tax;
+    totalTax += tax;
+    payoutByUserId.set(winnersByJoinOrder[i].userId, netPayout);
+  }
+
+  return { payoutByUserId, totalTax };
+}
+
 export async function createBet(params: {
   creatorId: string;
   title: string;
@@ -180,24 +214,15 @@ export async function settleBet(params: {
       };
     }
 
-    const totalPool = entries.length * bet.amount;
-    const winnersByJoinOrder = [...winners].sort(
-      (a, b) => a.joinedAt.getTime() - b.joinedAt.getTime()
-    );
-    const basePayout = Math.floor(totalPool / winnersByJoinOrder.length);
-    const remainder = totalPool % winnersByJoinOrder.length;
-    const payoutByUserId = new Map<string, number>();
-    let totalTax = 0;
+    const { payoutByUserId, totalTax } = computeMode1Settlement({
+      entries,
+      betAmount: bet.amount,
+      winningOptionId: params.winningOptionId,
+    });
 
-    for (let i = 0; i < winnersByJoinOrder.length; i++) {
-      const grossPayout = basePayout + (i < remainder ? 1 : 0);
-      const profit = grossPayout - bet.amount;
-      const tax = Math.round(profit * TAX_RATE);
-      const netPayout = grossPayout - tax;
-      totalTax += tax;
-      payoutByUserId.set(winnersByJoinOrder[i].userId, netPayout);
+    for (const [userId, netPayout] of payoutByUserId) {
       await applyTransaction(tx, {
-        discordId: winnersByJoinOrder[i].userId,
+        discordId: userId,
         type: TransactionType.BET,
         amount: netPayout,
         description: `베팅 정산: ${bet.title}`,

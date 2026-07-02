@@ -23,6 +23,40 @@ export class Mode2BetLimitExceededError extends Error {}
 
 const TAX_RATE = 0.05;
 
+export interface Mode2SettlementCalculation {
+  payoutByUserId: Map<string, number>;
+  totalTax: number;
+  shortfall: number;
+}
+
+// settleMode2Bet과 정산취소(재계산) 양쪽에서 공유하는 순수 함수.
+export function computeMode2Settlement(params: {
+  entries: { userId: string; side: 'A' | 'B'; amount: number; joinedAt: Date }[];
+  winningSide: 'A' | 'B';
+}): Mode2SettlementCalculation {
+  const winners = params.entries
+    .filter((entry) => entry.side === params.winningSide)
+    .sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime());
+  const losers = params.entries.filter((entry) => entry.side !== params.winningSide);
+
+  const totalProfitOwed = winners.reduce((sum, entry) => sum + entry.amount, 0);
+  const totalLoserPool = losers.reduce((sum, entry) => sum + entry.amount, 0);
+  const shortfall = Math.max(0, totalProfitOwed - totalLoserPool);
+
+  let totalTax = 0;
+  const payoutByUserId = new Map<string, number>();
+  for (const winner of winners) {
+    const profit = winner.amount;
+    const tax = Math.round(profit * TAX_RATE);
+    const netProfit = profit - tax;
+    totalTax += tax;
+    const payout = winner.amount + netProfit;
+    payoutByUserId.set(winner.userId, payout);
+  }
+
+  return { payoutByUserId, totalTax, shortfall };
+}
+
 export async function createMode2Bet(params: {
   creatorId: string;
   title: string;
@@ -143,14 +177,10 @@ export async function settleMode2Bet(params: {
       throw new BetNotClosedError(`mode2 bet ${params.betId} is not closed`);
     }
 
-    const winners = bet.entries
-      .filter((entry) => entry.side === params.winningSide)
-      .sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime());
-    const losers = bet.entries.filter((entry) => entry.side !== params.winningSide);
-
-    const totalProfitOwed = winners.reduce((sum, entry) => sum + entry.amount, 0);
-    const totalLoserPool = losers.reduce((sum, entry) => sum + entry.amount, 0);
-    const shortfall = Math.max(0, totalProfitOwed - totalLoserPool);
+    const { payoutByUserId, totalTax, shortfall } = computeMode2Settlement({
+      entries: bet.entries,
+      winningSide: params.winningSide,
+    });
 
     // 부족분 충당과 베팅세는 서로 독립적인 흐름 - 부족분이 없어도 세금은 항상 걷힌다.
     if (shortfall > 0) {
@@ -162,18 +192,9 @@ export async function settleMode2Bet(params: {
       });
     }
 
-    let totalTax = 0;
-    const payoutByUserId = new Map<string, number>();
-    for (const winner of winners) {
-      const profit = winner.amount;
-      const tax = Math.round(profit * TAX_RATE);
-      const netProfit = profit - tax;
-      totalTax += tax;
-      const payout = winner.amount + netProfit;
-      payoutByUserId.set(winner.userId, payout);
-
+    for (const [userId, payout] of payoutByUserId) {
       await applyTransaction(tx, {
-        discordId: winner.userId,
+        discordId: userId,
         type: TransactionType.BET,
         amount: payout,
         description: `모드2 베팅 정산: ${bet.title}`,
