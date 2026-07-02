@@ -16,28 +16,43 @@ const STATUS_LABELS: Record<string, string> = {
   CLOSED: '마감 (정산 대기)',
   SETTLED: '정산 완료',
   VOID: '무효 처리됨',
+  VOIDED: '무효 처리됨',
 };
 
 export function buildBetAnnouncement(
-  bet: { id: number; title: string; amount: number; status: string; options: { label: string }[] },
+  bet: {
+    id: number;
+    title: string;
+    amount: number | null;
+    status: string;
+    options: { label: string }[];
+  },
   participantUserIds: string[]
 ): string {
   const optionsText = bet.options.map((option) => `- ${option.label}`).join('\n');
+  const amountLine =
+    bet.amount === null
+      ? '참가 금액: 자유 (진 쪽 총액을 이긴 쪽이 베팅액 비율로 나눠 가짐)'
+      : `참가 금액: ${bet.amount.toLocaleString()} 포인트 (전원 동일, 레거시)`;
+  const joinHint =
+    bet.amount === null
+      ? '아래 버튼으로 참가하세요 (금액은 자유, 선택은 비공개):'
+      : '아래 버튼으로 참가하세요 (선택은 비공개):';
 
   return [
     `**[베팅 #${bet.id}] ${bet.title}**`,
-    `참가 금액: ${bet.amount.toLocaleString()} 포인트 (전원 동일, 모드1)`,
+    amountLine,
     `상태: ${STATUS_LABELS[bet.status] ?? bet.status}`,
     formatParticipantsLine(participantUserIds),
     '',
-    '아래 버튼으로 참가하세요 (선택은 비공개):',
+    joinHint,
     optionsText,
   ].join('\n');
 }
 
 export function mode1BetErrorMessage(error: unknown): string | null {
   if (error instanceof InvalidBetOptionsError) {
-    return '옵션은 2개 이상, 금액은 1 이상이어야 합니다.';
+    return '옵션은 정확히 2개여야 하고, 참가 금액은 1 이상의 정수여야 합니다.';
   }
   if (error instanceof DuplicateOptionLabelError) {
     return '옵션 이름이 서로 겹칩니다 (대소문자/공백 무시). 다른 이름으로 다시 시도해주세요.';

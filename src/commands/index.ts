@@ -17,7 +17,6 @@ import * as mode1BetClose from './mode1BetClose';
 import * as mode1BetCreate from './mode1BetCreate';
 import * as mode1BetSettle from './mode1BetSettle';
 import * as mode2BetClose from './mode2BetClose';
-import * as mode2BetCreate from './mode2BetCreate';
 import * as mode2BetSettle from './mode2BetSettle';
 import * as ranking from './ranking';
 import * as settlementCancel from './settlementCancel';
@@ -39,7 +38,6 @@ export const commands = new Map<string, Command>([
   [mode1BetCreate.data.name, mode1BetCreate],
   [mode1BetClose.data.name, mode1BetClose],
   [mode1BetSettle.data.name, mode1BetSettle],
-  [mode2BetCreate.data.name, mode2BetCreate],
   [mode2BetClose.data.name, mode2BetClose],
   [mode2BetSettle.data.name, mode2BetSettle],
   [transfer.data.name, transfer],

@@ -8,6 +8,12 @@ import {
   isMode2BetChooseButton,
 } from './mode2BetInteraction';
 import { handleSettlementCancelButton, isSettlementCancelButton } from './settlementCancelButton';
+import {
+  handleUnifiedBetAmountModal,
+  handleUnifiedBetChooseButton,
+  isUnifiedBetAmountModal,
+  isUnifiedBetChooseButton,
+} from './unifiedBetInteraction';
 
 async function replyWithGenericError(interaction: Interaction, context: string, error: unknown) {
   console.error(context, error);
@@ -61,6 +67,24 @@ export async function handleInteractionCreate(interaction: Interaction) {
       await handleSettlementCancelButton(interaction);
     } catch (error) {
       await replyWithGenericError(interaction, '정산취소 버튼 처리 중 오류 발생', error);
+    }
+    return;
+  }
+
+  if (interaction.isButton() && isUnifiedBetChooseButton(interaction.customId)) {
+    try {
+      await handleUnifiedBetChooseButton(interaction);
+    } catch (error) {
+      await replyWithGenericError(interaction, '베팅 옵션 선택 처리 중 오류 발생', error);
+    }
+    return;
+  }
+
+  if (interaction.isModalSubmit() && isUnifiedBetAmountModal(interaction.customId)) {
+    try {
+      await handleUnifiedBetAmountModal(interaction);
+    } catch (error) {
+      await replyWithGenericError(interaction, '베팅 금액 입력 처리 중 오류 발생', error);
     }
     return;
   }

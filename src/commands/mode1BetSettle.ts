@@ -2,7 +2,7 @@ import { type ChatInputCommandInteraction, MessageFlags, SlashCommandBuilder } f
 import { prisma } from '../db/client';
 import { logBetEvent } from '../discord/betLog';
 import { formatMode1Settle } from '../discord/betLogMessages';
-import { normalizeLabel, settleBet } from '../services/mode1Bet';
+import { normalizeLabel, settleBet, settleUnifiedBet } from '../services/mode1Bet';
 import { mode1BetErrorMessage } from './mode1BetView';
 
 export const data = new SlashCommandBuilder()
@@ -36,14 +36,22 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   }
 
   try {
-    const settled = await settleBet({
-      betId,
-      requestedBy: interaction.user.id,
-      winningOptionId: winningOption.id,
-    });
+    // 이 배포 이전에 이미 열려있던 레거시 모드1 베팅은 기존 로직 그대로 정산한다.
+    const settled =
+      bet.mode === 'UNIFIED'
+        ? await settleUnifiedBet({
+            betId,
+            requestedBy: interaction.user.id,
+            winningOptionId: winningOption.id,
+          })
+        : await settleBet({
+            betId,
+            requestedBy: interaction.user.id,
+            winningOptionId: winningOption.id,
+          });
 
     const message =
-      settled.status === 'VOID'
+      settled.status === 'VOID' || settled.status === 'VOIDED'
         ? `베팅 #${settled.id} (${bet.title})는 무효 처리되어 참가자 전원에게 환불되었습니다.`
         : `베팅 #${settled.id} (${bet.title}) 정산 완료! 정답: ${winningOption.label}`;
 

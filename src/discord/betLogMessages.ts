@@ -10,15 +10,14 @@ export function formatMode1Create(bet: {
   id: number;
   creatorId: string;
   title: string;
-  amount: number;
   options: { label: string }[];
 }): string {
   return [
-    `📋 **[모드1 개설]** 베팅 #${bet.id}`,
+    `📋 **[베팅 개설]** 베팅 #${bet.id}`,
     `개최자: <@${bet.creatorId}>`,
     timestampLine(),
     `제목: ${bet.title}`,
-    `금액: ${bet.amount.toLocaleString()} 포인트 (전원 동일)`,
+    '금액: 자유 (비례 배당)',
     `옵션: ${bet.options.map((option) => option.label).join(', ')}`,
   ].join('\n');
 }
@@ -46,9 +45,11 @@ export function formatMode1Settle(
 ): string {
   const optionLabel = (id: number) => options.find((option) => option.id === id)?.label ?? `옵션#${id}`;
 
+  const isVoid = settled.status === 'VOID' || settled.status === 'VOIDED';
+
   const lines = settled.entryResults.map((entry) => {
     const label = optionLabel(entry.optionId);
-    if (settled.status === 'VOID') {
+    if (isVoid) {
       return `- <@${entry.userId}>: ${label} (환불 +${entry.creditedAmount.toLocaleString()})`;
     }
     return entry.creditedAmount > 0
@@ -56,36 +57,24 @@ export function formatMode1Settle(
       : `- <@${entry.userId}>: ${label} ❌`;
   });
 
-  const header =
+  const header = isVoid
+    ? `🚫 **[정산 - 무효]** 베팅 #${settled.id} (${settled.title})`
+    : `🏆 **[정산 - 완료]** 베팅 #${settled.id} (${settled.title})`;
+
+  const reasonLine =
     settled.status === 'VOID'
-      ? `🚫 **[모드1 정산 - 무효]** 베팅 #${settled.id} (${settled.title})`
-      : `🏆 **[모드1 정산 - 완료]** 베팅 #${settled.id} (${settled.title})`;
+      ? '사유: 전원 동일 선택 또는 정답자 없음 → 전원 환불'
+      : settled.status === 'VOIDED'
+        ? '사유: 참여자 부족(한쪽에만 참가자 있음) → 전원 환불'
+        : `정답: ${optionLabel(winningOptionId)}`;
 
   return [
     header,
     `개최자: <@${settled.creatorId}>`,
     timestampLine(),
-    settled.status === 'VOID'
-      ? '사유: 전원 동일 선택 또는 정답자 없음 → 전원 환불'
-      : `정답: ${optionLabel(winningOptionId)}`,
+    reasonLine,
     '참가자 및 결과:',
     ...(lines.length > 0 ? lines : ['(참가자 없음)']),
-  ].join('\n');
-}
-
-export function formatMode2Create(bet: {
-  id: number;
-  creatorId: string;
-  title: string;
-  sideALabel: string;
-  sideBLabel: string;
-}): string {
-  return [
-    `📋 **[모드2 개설]** 베팅 #${bet.id}`,
-    `개최자: <@${bet.creatorId}>`,
-    timestampLine(),
-    `제목: ${bet.title}`,
-    `사이드: ${bet.sideALabel} / ${bet.sideBLabel} (자유 금액)`,
   ].join('\n');
 }
 

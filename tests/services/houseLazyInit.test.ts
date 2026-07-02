@@ -4,7 +4,7 @@ import { gamble, GAMBLE_AMOUNT } from '../../src/services/gamble';
 import { HOUSE_ID } from '../../src/services/house';
 import { getOrCreateUser } from '../../src/services/ledger';
 import { createLoan } from '../../src/services/loan';
-import { closeBet, createBet, joinBet, settleBet } from '../../src/services/mode1Bet';
+import { closeBet, joinBet, settleBet } from '../../src/services/mode1Bet';
 import {
   createMode2Bet,
   Mode2BetLimitExceededError,
@@ -16,6 +16,26 @@ import { transferPoints } from '../../src/services/transfer';
 
 const forceWin = () => 0;
 const forceLose = () => 0.99;
+
+// createBet()은 이제 UNIFIED 베팅만 만들기 때문에, joinBet/closeBet/settleBet(레거시, 변경 없음)
+// 테스트용 레거시 모양 픽스처는 Prisma로 직접 만든다.
+async function createLegacyBet(params: {
+  creatorId: string;
+  title: string;
+  amount: number;
+  options: string[];
+}) {
+  return prisma.bet.create({
+    data: {
+      creatorId: params.creatorId,
+      title: params.title,
+      amount: params.amount,
+      mode: 'LEGACY_MODE1',
+      options: { create: params.options.map((label) => ({ label })) },
+    },
+    include: { options: true },
+  });
+}
 
 // tests/setup.ts의 beforeEach가 House 테이블을 매번 비우기 때문에, 이 파일의 테스트들은
 // 별도로 getOrCreateHouse()/setHouseBalance()를 호출하지 않는다 - "House row가 아예 없는
@@ -50,7 +70,7 @@ describe('House row 없이 처음 실행 - 도박', () => {
 
 describe('House row 없이 처음 실행 - 모드1 베팅', () => {
   test('정산 중 세금 귀속이 House 없이도 정상 처리된다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'fresh-creator-m1',
       title: '모드1베팅X',
       amount: 1_000_000,

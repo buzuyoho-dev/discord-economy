@@ -4,7 +4,7 @@ import { NotAdminError } from './adminGrant';
 import { BetNotFoundError, BetNotSettledError } from './betShared';
 import { applyHouseTransaction } from './house';
 import { applyTransaction } from './ledger';
-import { computeMode1Settlement } from './mode1Bet';
+import { computeMode1Settlement, computeUnifiedSettlement } from './mode1Bet';
 import { computeMode2Settlement } from './mode2Bet';
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -65,6 +65,37 @@ function buildCorrectionPlan(found: SettledBetLookup): SettlementCancellationPla
     const bet = found.bet;
     if (bet.winningOptionId === null) {
       throw new Error(`settled bet ${bet.id} has no winningOptionId`);
+    }
+
+    if (bet.mode === 'UNIFIED') {
+      // 참가자 상쇄는 정산 시점에 BetEntry.payout에 이미 저장된 실지급액을 그대로 쓴다 -
+      // 재계산이 아니라 이 값을 신뢰하는 게 정산취소/분쟁 대응용으로 이 필드를 둔 목적이다.
+      const corrections = bet.entries
+        .filter((entry) => (entry.payout ?? 0) > 0)
+        .map((entry) => ({ userId: entry.userId, amount: -(entry.payout ?? 0) }));
+
+      // 하우스 반영분(세금 + 내림 잔돈)은 BetEntry에 저장되어 있지 않으므로, settleUnifiedBet과
+      // 동일한 입력(참가자별 amount, winningOptionId)으로부터 결정적으로 재계산한다.
+      const { houseGain } = computeUnifiedSettlement({
+        entries: bet.entries.map((entry) => ({
+          userId: entry.userId,
+          optionId: entry.optionId,
+          amount: entry.amount ?? 0,
+        })),
+        winningOptionId: bet.winningOptionId,
+      });
+
+      return {
+        mode: 1,
+        betId: bet.id,
+        title: bet.title,
+        corrections,
+        houseDelta: houseGain > 0 ? -houseGain : 0,
+      };
+    }
+
+    if (bet.amount === null) {
+      throw new Error(`legacy bet ${bet.id} has no fixed amount`);
     }
 
     const { payoutByUserId, totalTax } = computeMode1Settlement({

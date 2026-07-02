@@ -7,45 +7,63 @@ import {
   BetNotClosedError,
   BetNotOpenError,
   closeBet,
+  computeUnifiedSettlement,
   createBet,
   DuplicateOptionLabelError,
   InvalidBetOptionsError,
   InvalidOptionError,
   joinBet,
+  joinUnifiedBet,
   NotBetCreatorError,
   settleBet,
+  settleUnifiedBet,
 } from '../../src/services/mode1Bet';
 
-describe('createBet', () => {
-  test('제목/금액/옵션으로 베팅을 OPEN 상태로 생성한다', async () => {
+// 통합(UNIFIED) 전환 이후 createBet()은 더 이상 고정 금액 레거시 모드1 베팅을 만들지 않는다.
+// joinBet/closeBet/settleBet(레거시 로직, 변경 없음)을 테스트하려면 레거시 모양의 Bet을
+// Prisma로 직접 만들어야 한다.
+async function createLegacyBet(params: {
+  creatorId: string;
+  title: string;
+  amount: number;
+  options: string[];
+}) {
+  return prisma.bet.create({
+    data: {
+      creatorId: params.creatorId,
+      title: params.title,
+      amount: params.amount,
+      mode: 'LEGACY_MODE1',
+      options: { create: params.options.map((label) => ({ label })) },
+    },
+    include: { options: true },
+  });
+}
+
+describe('createBet (통합 UNIFIED 베팅 생성)', () => {
+  test('제목/옵션 2개로 UNIFIED 베팅을 OPEN 상태로 생성한다 (금액 없음)', async () => {
     const bet = await createBet({
       creatorId: 'creator-1',
       title: '오늘 1킬 이상이냐',
-      amount: 1_000_000,
       options: ['1킬 이상', '0킬'],
     });
 
     expect(bet.status).toBe('OPEN');
-    expect(bet.amount).toBe(1_000_000);
+    expect(bet.mode).toBe('UNIFIED');
+    expect(bet.amount).toBeNull();
     expect(bet.options).toHaveLength(2);
     expect(bet.options.map((o) => o.label)).toEqual(['1킬 이상', '0킬']);
   });
 
-  test('옵션이 1개 이하면 거부한다', async () => {
+  test('옵션이 1개면 거부한다', async () => {
     await expect(
-      createBet({ creatorId: 'creator-2', title: 'x', amount: 1_000, options: ['단일옵션'] })
+      createBet({ creatorId: 'creator-2', title: 'x', options: ['단일옵션'] })
     ).rejects.toThrow(InvalidBetOptionsError);
   });
 
-  test('금액이 0 이하면 거부한다', async () => {
+  test('옵션이 3개 이상이면 거부한다 (통합 베팅은 정확히 2개만 허용)', async () => {
     await expect(
-      createBet({ creatorId: 'creator-3', title: 'x', amount: 0, options: ['A', 'B'] })
-    ).rejects.toThrow(InvalidBetOptionsError);
-  });
-
-  test.each([NaN, 1.5, Infinity, -Infinity])('금액이 %s이면 거부한다', async (amount) => {
-    await expect(
-      createBet({ creatorId: 'creator-invalid-amount', title: 'x', amount, options: ['A', 'B'] })
+      createBet({ creatorId: 'creator-2b', title: 'x', options: ['A', 'B', 'C'] })
     ).rejects.toThrow(InvalidBetOptionsError);
   });
 
@@ -54,7 +72,6 @@ describe('createBet', () => {
       createBet({
         creatorId: 'creator-4',
         title: 'x',
-        amount: 1_000,
         options: ['팀A', ' 팀a '],
       })
     ).rejects.toThrow(DuplicateOptionLabelError);
@@ -63,7 +80,7 @@ describe('createBet', () => {
 
 describe('joinBet', () => {
   test('참가 시 베팅액만큼 즉시 차감되고 BetEntry가 생성된다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'creator-5',
       title: '베팅5',
       amount: 1_000_000,
@@ -86,7 +103,7 @@ describe('joinBet', () => {
   });
 
   test('OPEN 상태가 아닌 베팅에는 참가할 수 없다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'creator-6',
       title: '베팅6',
       amount: 1_000_000,
@@ -100,13 +117,13 @@ describe('joinBet', () => {
   });
 
   test('해당 베팅에 속하지 않은 옵션ID로 참가하면 거부한다', async () => {
-    const betA = await createBet({
+    const betA = await createLegacyBet({
       creatorId: 'creator-7',
       title: '베팅7',
       amount: 1_000_000,
       options: ['A', 'B'],
     });
-    const betB = await createBet({
+    const betB = await createLegacyBet({
       creatorId: 'creator-8',
       title: '베팅8',
       amount: 1_000_000,
@@ -119,7 +136,7 @@ describe('joinBet', () => {
   });
 
   test('같은 유저가 같은 베팅에 두 번 참가하면 거부하고 잔액·기록은 한 번만 반영된다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'creator-9',
       title: '베팅9',
       amount: 1_000_000,
@@ -141,7 +158,7 @@ describe('joinBet', () => {
 
   test('동시에 중복 참가를 시도해도 차감과 BetEntry 생성은 정확히 한 번만 일어난다', async () => {
     await getOrCreateUser('joiner-5');
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'creator-10',
       title: '베팅10',
       amount: 1_000_000,
@@ -169,7 +186,7 @@ describe('joinBet', () => {
 
 describe('closeBet', () => {
   test('개최자가 닫으면 OPEN에서 CLOSED로 바뀐다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'creator-11',
       title: '베팅11',
       amount: 1_000_000,
@@ -183,7 +200,7 @@ describe('closeBet', () => {
   });
 
   test('개최자가 아니면 닫을 수 없다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'creator-12',
       title: '베팅12',
       amount: 1_000_000,
@@ -199,7 +216,7 @@ describe('closeBet', () => {
   });
 
   test('이미 CLOSED인 베팅은 다시 닫을 수 없다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'creator-13',
       title: '베팅13',
       amount: 1_000_000,
@@ -215,7 +232,7 @@ describe('closeBet', () => {
 
 describe('settleBet', () => {
   test('CLOSED 상태가 아니면 정산할 수 없다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'creator-20',
       title: '베팅20',
       amount: 1_000_000,
@@ -228,7 +245,7 @@ describe('settleBet', () => {
   });
 
   test('개최자가 아니면 정산할 수 없다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'creator-21',
       title: '베팅21',
       amount: 1_000_000,
@@ -242,13 +259,13 @@ describe('settleBet', () => {
   });
 
   test('베팅에 속하지 않은 옵션ID로 정산하면 거부한다', async () => {
-    const betA = await createBet({
+    const betA = await createLegacyBet({
       creatorId: 'creator-22',
       title: '베팅22',
       amount: 1_000_000,
       options: ['A', 'B'],
     });
-    const betB = await createBet({
+    const betB = await createLegacyBet({
       creatorId: 'creator-23',
       title: '베팅23',
       amount: 1_000_000,
@@ -262,7 +279,7 @@ describe('settleBet', () => {
   });
 
   test('전원이 같은 옵션을 선택하면 전원 환불되고 VOID 처리된다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'creator-24',
       title: '베팅24',
       amount: 1_000_000,
@@ -291,7 +308,7 @@ describe('settleBet', () => {
   });
 
   test('참가자가 0명이면 환불할 대상 없이 VOID 처리된다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'creator-25',
       title: '베팅25',
       amount: 1_000_000,
@@ -309,7 +326,7 @@ describe('settleBet', () => {
   });
 
   test('정답을 고른 사람이 한 명도 없으면(3개 이상 옵션) 전원 환불된다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'creator-26',
       title: '베팅26',
       amount: 1_000_000,
@@ -333,7 +350,7 @@ describe('settleBet', () => {
   });
 
   test('정답자가 있으면 전체 풀을 정답자 수로 나눠 분배하고, 오답자는 변동이 없다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'creator-27',
       title: '베팅27',
       amount: 1_000_000,
@@ -378,7 +395,7 @@ describe('settleBet', () => {
   });
 
   test('정확히 나누어지지 않으면 나머지를 참가 순서가 빠른 정답자부터 1포인트씩 분배해 풀을 정확히 소진한다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'creator-28',
       title: '베팅28',
       amount: 1_000_001, // 의도적으로 홀수
@@ -421,7 +438,7 @@ describe('settleBet - 모드1 베팅세 (5%, 순수익 기준)', () => {
   }
 
   test('승자 1명: 순수익의 5%만 세금으로 빠지고 나머지를 실수령한다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'tax-creator-1',
       title: '세금테스트1',
       amount: 1_000_000,
@@ -451,7 +468,7 @@ describe('settleBet - 모드1 베팅세 (5%, 순수익 기준)', () => {
   });
 
   test('승자 2명: 각자의 순수익 기준으로 5%씩 세금이 계산된다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'tax-creator-2',
       title: '세금테스트2',
       amount: 1_000_000,
@@ -482,7 +499,7 @@ describe('settleBet - 모드1 베팅세 (5%, 순수익 기준)', () => {
   });
 
   test('승자 3명: 각자의 순수익 기준으로 5%씩 세금이 계산된다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'tax-creator-3',
       title: '세금테스트3',
       amount: 600_000,
@@ -514,7 +531,7 @@ describe('settleBet - 모드1 베팅세 (5%, 순수익 기준)', () => {
   });
 
   test('무효 처리(전원 동일 선택) 시에는 환불일 뿐이라 세금이 발생하지 않는다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'tax-void-creator',
       title: '무효세금테스트',
       amount: 1_000_000,
@@ -541,5 +558,191 @@ describe('settleBet - 모드1 베팅세 (5%, 순수익 기준)', () => {
 
     const taxTxs = await prisma.houseTransaction.findMany({ where: { type: 'TAX' } });
     expect(taxTxs).toHaveLength(0);
+  });
+});
+
+describe('joinUnifiedBet', () => {
+  test('참가 시 입력한 금액만큼 즉시 차감되고 BetEntry.amount에 저장된다', async () => {
+    const bet = await createBet({ creatorId: 'u-creator-1', title: '통합1', options: ['A', 'B'] });
+
+    const entry = await joinUnifiedBet({
+      betId: bet.id,
+      userId: 'u-joiner-1',
+      optionId: bet.options[0].id,
+      amount: 3_500_000,
+    });
+
+    expect(entry.amount).toBe(3_500_000);
+
+    const user = await prisma.user.findUniqueOrThrow({ where: { discordId: 'u-joiner-1' } });
+    expect(user.balance).toBe(10_000_000 - 3_500_000);
+  });
+
+  test('금액이 0 이하이거나 정수가 아니면 거부한다', async () => {
+    const bet = await createBet({ creatorId: 'u-creator-2', title: '통합2', options: ['A', 'B'] });
+
+    await expect(
+      joinUnifiedBet({ betId: bet.id, userId: 'u-joiner-2', optionId: bet.options[0].id, amount: 0 })
+    ).rejects.toThrow(InvalidBetOptionsError);
+    await expect(
+      joinUnifiedBet({ betId: bet.id, userId: 'u-joiner-2', optionId: bet.options[0].id, amount: 1.5 })
+    ).rejects.toThrow(InvalidBetOptionsError);
+  });
+
+  test('하우스 잔액과 무관하게 상한 없이 참가할 수 있다 (모드2의 10% 한도 없음)', async () => {
+    const bet = await createBet({ creatorId: 'u-creator-3', title: '통합3', options: ['A', 'B'] });
+
+    // 하우스가 존재하지 않거나 잔액이 0이어도(=한도 0이었을 모드2 상황) 큰 금액 참가가 그대로 성공해야 한다
+    await expect(
+      joinUnifiedBet({
+        betId: bet.id,
+        userId: 'u-joiner-3',
+        optionId: bet.options[0].id,
+        amount: 9_999_999,
+      })
+    ).resolves.toBeDefined();
+  });
+
+  test('OPEN 상태가 아닌 베팅에는 참가할 수 없다', async () => {
+    const bet = await createBet({ creatorId: 'u-creator-4', title: '통합4', options: ['A', 'B'] });
+    await closeBet({ betId: bet.id, requestedBy: 'u-creator-4' });
+
+    await expect(
+      joinUnifiedBet({ betId: bet.id, userId: 'u-joiner-4', optionId: bet.options[0].id, amount: 1000 })
+    ).rejects.toThrow(BetNotOpenError);
+  });
+
+  test('같은 유저가 두 번 참가하면 거부한다', async () => {
+    const bet = await createBet({ creatorId: 'u-creator-5', title: '통합5', options: ['A', 'B'] });
+    await joinUnifiedBet({ betId: bet.id, userId: 'u-joiner-5', optionId: bet.options[0].id, amount: 1000 });
+
+    await expect(
+      joinUnifiedBet({ betId: bet.id, userId: 'u-joiner-5', optionId: bet.options[1].id, amount: 2000 })
+    ).rejects.toThrow(AlreadyJoinedError);
+  });
+});
+
+describe('computeUnifiedSettlement', () => {
+  test('승자 여러 명, 베팅액이 다를 때 비율대로 분배하고 내림 잔돈은 하우스로 귀속된다', () => {
+    const result = computeUnifiedSettlement({
+      entries: [
+        { userId: 'w1', optionId: 1, amount: 100 },
+        { userId: 'w2', optionId: 1, amount: 200 },
+        { userId: 'w3', optionId: 1, amount: 300 },
+        { userId: 'l1', optionId: 2, amount: 1_000_000 },
+      ],
+      winningOptionId: 1,
+    });
+
+    // losersTotal=1,000,000, tax=50,000, distributable=950,000
+    // w1: floor(100/600*950000)=158333, w2: floor(200/600*950000)=316666, w3: floor(300/600*950000)=475000
+    expect(result.payoutByUserId.get('w1')).toBe(100 + 158_333);
+    expect(result.payoutByUserId.get('w2')).toBe(200 + 316_666);
+    expect(result.payoutByUserId.get('w3')).toBe(300 + 475_000);
+    // 세금 50,000 + 내림 잔돈 1 = 50,001
+    expect(result.houseGain).toBe(50_001);
+  });
+});
+
+describe('settleUnifiedBet - 정상 케이스 (양쪽 다 참가자 있음)', () => {
+  test('진 쪽 총액의 5%를 세금으로 떼고 나머지를 이긴 쪽 베팅 비율로 분배한다', async () => {
+    const bet = await createBet({ creatorId: 's-creator-1', title: '정산1', options: ['A', 'B'] });
+    await joinUnifiedBet({ betId: bet.id, userId: 's-a1', optionId: bet.options[0].id, amount: 3_000_000 });
+    await joinUnifiedBet({ betId: bet.id, userId: 's-a2', optionId: bet.options[0].id, amount: 1_000_000 });
+    await joinUnifiedBet({ betId: bet.id, userId: 's-b1', optionId: bet.options[1].id, amount: 2_000_000 });
+    await joinUnifiedBet({ betId: bet.id, userId: 's-b2', optionId: bet.options[1].id, amount: 2_000_000 });
+    await closeBet({ betId: bet.id, requestedBy: 's-creator-1' });
+
+    const settled = await settleUnifiedBet({
+      betId: bet.id,
+      requestedBy: 's-creator-1',
+      winningOptionId: bet.options[0].id,
+    });
+
+    expect(settled.status).toBe('SETTLED');
+
+    // losersTotal=4,000,000, tax=200,000, distributable=3,800,000
+    // s-a1(3M/4M 비율): bonus=2,850,000 -> payout=5,850,000
+    // s-a2(1M/4M 비율): bonus=950,000 -> payout=1,950,000
+    const a1 = await prisma.user.findUniqueOrThrow({ where: { discordId: 's-a1' } });
+    const a2 = await prisma.user.findUniqueOrThrow({ where: { discordId: 's-a2' } });
+    expect(a1.balance).toBe(10_000_000 - 3_000_000 + 5_850_000);
+    expect(a2.balance).toBe(10_000_000 - 1_000_000 + 1_950_000);
+
+    // 패자는 참가 시 차감된 것 외 추가 변동 없음
+    const b1 = await prisma.user.findUniqueOrThrow({ where: { discordId: 's-b1' } });
+    const b2 = await prisma.user.findUniqueOrThrow({ where: { discordId: 's-b2' } });
+    expect(b1.balance).toBe(10_000_000 - 2_000_000);
+    expect(b2.balance).toBe(10_000_000 - 2_000_000);
+
+    const house = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(house.balance).toBe(200_000);
+
+    // BetEntry.payout에 최종 지급액이 정확히 기록된다
+    const entries = await prisma.betEntry.findMany({ where: { betId: bet.id }, orderBy: { userId: 'asc' } });
+    const payoutByUser = new Map(entries.map((e) => [e.userId, e.payout]));
+    expect(payoutByUser.get('s-a1')).toBe(5_850_000);
+    expect(payoutByUser.get('s-a2')).toBe(1_950_000);
+    expect(payoutByUser.get('s-b1')).toBe(0);
+    expect(payoutByUser.get('s-b2')).toBe(0);
+  });
+});
+
+describe('settleUnifiedBet - 무효(VOIDED) 케이스', () => {
+  test('한쪽에만 참가자가 있으면 전액 환불하고 VOIDED 처리한다', async () => {
+    const bet = await createBet({ creatorId: 's-creator-2', title: '정산2', options: ['A', 'B'] });
+    await joinUnifiedBet({ betId: bet.id, userId: 's-only-1', optionId: bet.options[0].id, amount: 1_234_567 });
+    await joinUnifiedBet({ betId: bet.id, userId: 's-only-2', optionId: bet.options[0].id, amount: 500_000 });
+    // 옵션B(반대편)에는 아무도 참가하지 않음
+    await closeBet({ betId: bet.id, requestedBy: 's-creator-2' });
+
+    const settled = await settleUnifiedBet({
+      betId: bet.id,
+      requestedBy: 's-creator-2',
+      winningOptionId: bet.options[0].id,
+    });
+
+    expect(settled.status).toBe('VOIDED');
+
+    const u1 = await prisma.user.findUniqueOrThrow({ where: { discordId: 's-only-1' } });
+    const u2 = await prisma.user.findUniqueOrThrow({ where: { discordId: 's-only-2' } });
+    expect(u1.balance).toBe(10_000_000); // 전액 환불
+    expect(u2.balance).toBe(10_000_000);
+
+    const house = await prisma.house.findUnique({ where: { id: HOUSE_ID } });
+    expect(house?.balance ?? 0).toBe(0); // 세금 없음
+
+    const entries = await prisma.betEntry.findMany({ where: { betId: bet.id } });
+    expect(entries.find((e) => e.userId === 's-only-1')?.payout).toBe(1_234_567);
+    expect(entries.find((e) => e.userId === 's-only-2')?.payout).toBe(500_000);
+  });
+});
+
+describe('settleUnifiedBet - 원자성', () => {
+  test('승자 지급 처리 중 하나가 실패하면 전부 롤백된다', async () => {
+    const bet = await createBet({ creatorId: 's-creator-3', title: '정산3', options: ['A', 'B'] });
+    await joinUnifiedBet({ betId: bet.id, userId: 's-real-winner', optionId: bet.options[0].id, amount: 1_000_000 });
+    // ghost-winner는 User row 없이 BetEntry만 직접 만들어(참가 순서상 나중) 처리 중 실패를 유도한다
+    await prisma.betEntry.create({
+      data: { betId: bet.id, userId: 's-ghost-winner', optionId: bet.options[0].id, amount: 1_000_000 },
+    });
+    await joinUnifiedBet({ betId: bet.id, userId: 's-real-loser', optionId: bet.options[1].id, amount: 2_000_000 });
+    await closeBet({ betId: bet.id, requestedBy: 's-creator-3' });
+
+    const winnerBefore = await prisma.user.findUniqueOrThrow({ where: { discordId: 's-real-winner' } });
+    const houseBefore = await prisma.house.findUnique({ where: { id: HOUSE_ID } });
+
+    await expect(
+      settleUnifiedBet({ betId: bet.id, requestedBy: 's-creator-3', winningOptionId: bet.options[0].id })
+    ).rejects.toThrow();
+
+    const winnerAfter = await prisma.user.findUniqueOrThrow({ where: { discordId: 's-real-winner' } });
+    expect(winnerAfter.balance).toBe(winnerBefore.balance); // 롤백됨
+
+    const houseAfter = await prisma.house.findUnique({ where: { id: HOUSE_ID } });
+    expect(houseAfter?.balance ?? 0).toBe(houseBefore?.balance ?? 0); // 롤백됨
+
+    const betAfter = await prisma.bet.findUniqueOrThrow({ where: { id: bet.id } });
+    expect(betAfter.status).toBe('CLOSED'); // SETTLED로 바뀌지 않음
   });
 });

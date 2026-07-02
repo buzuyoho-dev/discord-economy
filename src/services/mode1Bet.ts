@@ -60,17 +60,16 @@ export function computeMode1Settlement(params: {
   return { payoutByUserId, totalTax };
 }
 
+// 통합(UNIFIED) 베팅 개설 - 고정 참가 금액 없이 옵션 정확히 2개만 받는다.
+// 레거시 모드1(LEGACY_MODE1) 베팅은 이 함수로 더 이상 만들 수 없다 (이미 열려있는 것만 기존
+// joinBet/closeBet/settleBet으로 계속 처리됨).
 export async function createBet(params: {
   creatorId: string;
   title: string;
-  amount: number;
   options: string[];
 }) {
-  if (!Number.isInteger(params.amount) || params.amount <= 0) {
-    throw new InvalidBetOptionsError('amount must be a positive integer');
-  }
-  if (params.options.length < 2) {
-    throw new InvalidBetOptionsError('at least 2 options are required');
+  if (params.options.length !== 2) {
+    throw new InvalidBetOptionsError('exactly 2 options are required');
   }
 
   const normalizedLabels = params.options.map(normalizeLabel);
@@ -82,7 +81,7 @@ export async function createBet(params: {
     data: {
       creatorId: params.creatorId,
       title: params.title,
-      amount: params.amount,
+      mode: 'UNIFIED',
       options: { create: params.options.map((label) => ({ label })) },
     },
     include: { options: true },
@@ -96,6 +95,9 @@ export async function joinBet(params: { betId: number; userId: string; optionId:
     const bet = await tx.bet.findUnique({ where: { id: params.betId } });
     if (!bet) {
       throw new BetNotFoundError(`bet ${params.betId} not found`);
+    }
+    if (bet.amount === null) {
+      throw new Error(`bet ${params.betId} has no fixed amount (not a legacy mode1 bet)`);
     }
     if (bet.status !== 'OPEN') {
       throw new BetNotOpenError(`bet ${params.betId} is not open`);
@@ -175,6 +177,10 @@ export async function settleBet(params: {
     if (bet.status !== 'CLOSED') {
       throw new BetNotClosedError(`bet ${params.betId} is not closed`);
     }
+    if (bet.amount === null) {
+      throw new Error(`bet ${params.betId} has no fixed amount (not a legacy mode1 bet)`);
+    }
+    const betAmount = bet.amount;
 
     const winningOption = await tx.betOption.findUnique({ where: { id: params.winningOptionId } });
     if (!winningOption || winningOption.betId !== params.betId) {
@@ -193,7 +199,7 @@ export async function settleBet(params: {
         await applyTransaction(tx, {
           discordId: entry.userId,
           type: TransactionType.BET,
-          amount: bet.amount,
+          amount: betAmount,
           description: `베팅 무효 환불: ${bet.title}`,
           occurredAt,
         });
@@ -209,14 +215,14 @@ export async function settleBet(params: {
         entryResults: entries.map((entry) => ({
           userId: entry.userId,
           optionId: entry.optionId,
-          creditedAmount: bet.amount,
+          creditedAmount: betAmount,
         })),
       };
     }
 
     const { payoutByUserId, totalTax } = computeMode1Settlement({
       entries,
-      betAmount: bet.amount,
+      betAmount,
       winningOptionId: params.winningOptionId,
     });
 
@@ -235,6 +241,214 @@ export async function settleBet(params: {
         type: TransactionType.TAX,
         amount: totalTax,
         description: `모드1 베팅세: ${bet.title}`,
+        occurredAt,
+      });
+    }
+
+    const updated = await tx.bet.update({
+      where: { id: params.betId },
+      data: { status: 'SETTLED', winningOptionId: params.winningOptionId, settledAt: occurredAt },
+    });
+
+    return {
+      ...updated,
+      entryResults: entries.map((entry) => ({
+        userId: entry.userId,
+        optionId: entry.optionId,
+        creditedAmount: payoutByUserId.get(entry.userId) ?? 0,
+      })),
+    };
+  });
+}
+
+export async function joinUnifiedBet(params: {
+  betId: number;
+  userId: string;
+  optionId: number;
+  amount: number;
+}) {
+  if (!Number.isInteger(params.amount) || params.amount <= 0) {
+    throw new InvalidBetOptionsError('amount must be a positive integer');
+  }
+
+  await getOrCreateUser(params.userId);
+
+  return prisma.$transaction(async (tx) => {
+    const bet = await tx.bet.findUnique({ where: { id: params.betId } });
+    if (!bet) {
+      throw new BetNotFoundError(`bet ${params.betId} not found`);
+    }
+    if (bet.mode !== 'UNIFIED') {
+      throw new Error(`bet ${params.betId} is not a unified bet`);
+    }
+    if (bet.status !== 'OPEN') {
+      throw new BetNotOpenError(`bet ${params.betId} is not open`);
+    }
+
+    const option = await tx.betOption.findUnique({ where: { id: params.optionId } });
+    if (!option || option.betId !== params.betId) {
+      throw new InvalidOptionError(`option ${params.optionId} does not belong to bet ${params.betId}`);
+    }
+
+    const existingEntry = await tx.betEntry.findUnique({
+      where: { betId_userId: { betId: params.betId, userId: params.userId } },
+    });
+    if (existingEntry) {
+      throw new AlreadyJoinedError(`${params.userId} already joined bet ${params.betId}`);
+    }
+
+    await applyTransaction(tx, {
+      discordId: params.userId,
+      type: TransactionType.BET,
+      amount: -params.amount,
+      description: `베팅 참가: ${bet.title}`,
+    });
+
+    try {
+      return await tx.betEntry.create({
+        data: {
+          betId: params.betId,
+          userId: params.userId,
+          optionId: params.optionId,
+          amount: params.amount,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new AlreadyJoinedError(`${params.userId} already joined bet ${params.betId}`);
+      }
+      throw error;
+    }
+  });
+}
+
+export interface UnifiedSettlementCalculation {
+  payoutByUserId: Map<string, number>;
+  houseGain: number;
+}
+
+// settleUnifiedBet과 정산취소(재계산) 양쪽에서 공유하는 순수 함수 - VOIDED(한쪽 총액 0) 케이스는
+// 다루지 않는다 (양쪽 다 참가자가 있는, 즉 SETTLED로 확정된 정산만 이 함수를 거친다).
+export function computeUnifiedSettlement(params: {
+  entries: { userId: string; optionId: number; amount: number }[];
+  winningOptionId: number;
+}): UnifiedSettlementCalculation {
+  const winners = params.entries.filter((entry) => entry.optionId === params.winningOptionId);
+  const losers = params.entries.filter((entry) => entry.optionId !== params.winningOptionId);
+  const winnersTotal = winners.reduce((sum, entry) => sum + entry.amount, 0);
+  const losersTotal = losers.reduce((sum, entry) => sum + entry.amount, 0);
+
+  const tax = Math.floor(losersTotal * TAX_RATE);
+  const distributable = losersTotal - tax;
+
+  const payoutByUserId = new Map<string, number>();
+  let distributed = 0;
+  for (const winner of winners) {
+    const bonus = Math.floor((winner.amount / winnersTotal) * distributable);
+    payoutByUserId.set(winner.userId, winner.amount + bonus);
+    distributed += bonus;
+  }
+
+  const houseGain = tax + (distributable - distributed);
+  return { payoutByUserId, houseGain };
+}
+
+export async function settleUnifiedBet(params: {
+  betId: number;
+  requestedBy: string;
+  winningOptionId: number;
+  now?: Date;
+}) {
+  const occurredAt = params.now ?? new Date();
+
+  return prisma.$transaction(async (tx) => {
+    const bet = await tx.bet.findUnique({
+      where: { id: params.betId },
+      include: { entries: true },
+    });
+    if (!bet) {
+      throw new BetNotFoundError(`bet ${params.betId} not found`);
+    }
+    if (bet.mode !== 'UNIFIED') {
+      throw new Error(`bet ${params.betId} is not a unified bet`);
+    }
+    if (bet.creatorId !== params.requestedBy) {
+      throw new NotBetCreatorError(`${params.requestedBy} is not the creator of bet ${params.betId}`);
+    }
+    if (bet.status !== 'CLOSED') {
+      throw new BetNotClosedError(`bet ${params.betId} is not closed`);
+    }
+
+    const winningOption = await tx.betOption.findUnique({ where: { id: params.winningOptionId } });
+    if (!winningOption || winningOption.betId !== params.betId) {
+      throw new InvalidOptionError(
+        `option ${params.winningOptionId} does not belong to bet ${params.betId}`
+      );
+    }
+
+    const entries = bet.entries.map((entry) => ({ ...entry, amount: entry.amount ?? 0 }));
+    const winnersTotal = entries
+      .filter((entry) => entry.optionId === params.winningOptionId)
+      .reduce((sum, entry) => sum + entry.amount, 0);
+    const losersTotal = entries
+      .filter((entry) => entry.optionId !== params.winningOptionId)
+      .reduce((sum, entry) => sum + entry.amount, 0);
+    const isVoided = winnersTotal === 0 || losersTotal === 0;
+
+    if (isVoided) {
+      for (const entry of entries) {
+        await applyTransaction(tx, {
+          discordId: entry.userId,
+          type: TransactionType.BET,
+          amount: entry.amount,
+          description: `베팅 무효 환불: ${bet.title}`,
+          occurredAt,
+        });
+        await tx.betEntry.update({ where: { id: entry.id }, data: { payout: entry.amount } });
+      }
+
+      const updated = await tx.bet.update({
+        where: { id: params.betId },
+        data: { status: 'VOIDED', winningOptionId: params.winningOptionId, settledAt: occurredAt },
+      });
+
+      return {
+        ...updated,
+        entryResults: entries.map((entry) => ({
+          userId: entry.userId,
+          optionId: entry.optionId,
+          creditedAmount: entry.amount,
+        })),
+      };
+    }
+
+    const { payoutByUserId, houseGain } = computeUnifiedSettlement({
+      entries,
+      winningOptionId: params.winningOptionId,
+    });
+
+    for (const [userId, payout] of payoutByUserId) {
+      await applyTransaction(tx, {
+        discordId: userId,
+        type: TransactionType.BET,
+        amount: payout,
+        description: `베팅 정산: ${bet.title}`,
+        occurredAt,
+      });
+    }
+
+    for (const entry of entries) {
+      await tx.betEntry.update({
+        where: { id: entry.id },
+        data: { payout: payoutByUserId.get(entry.userId) ?? 0 },
+      });
+    }
+
+    if (houseGain > 0) {
+      await applyHouseTransaction(tx, {
+        type: TransactionType.TAX,
+        amount: houseGain,
+        description: `베팅세: ${bet.title}`,
         occurredAt,
       });
     }

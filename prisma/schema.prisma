@@ -66,13 +66,22 @@ enum BetStatus {
   CLOSED
   SETTLED
   VOID
+  VOIDED
+}
+
+// LEGACY_MODE1: 통합 이전에 이미 만들어진 균등금액 베팅 (기존 로직으로만 정산됨).
+// UNIFIED: 이 필드 도입 이후 새로 생성되는 비례 배당 자유배팅.
+enum BetMode {
+  LEGACY_MODE1
+  UNIFIED
 }
 
 model Bet {
   id              Int         @id @default(autoincrement())
   creatorId       String
   title           String
-  amount          Int
+  mode            BetMode     @default(LEGACY_MODE1)
+  amount          Int?
   status          BetStatus   @default(OPEN)
   winningOptionId Int?
   createdAt       DateTime    @default(now())
@@ -99,6 +108,8 @@ model BetEntry {
   userId   String
   optionId Int
   option   BetOption @relation(fields: [optionId], references: [id])
+  amount   Int?
+  payout   Int?
   joinedAt DateTime  @default(now())
 
   @@unique([betId, userId])

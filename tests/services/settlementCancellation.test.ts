@@ -4,7 +4,14 @@ import { NotAdminError } from '../../src/services/adminGrant';
 import { BetNotFoundError, BetNotSettledError } from '../../src/services/betShared';
 import { applyHouseTransaction, getOrCreateHouse, HOUSE_ID } from '../../src/services/house';
 import { STARTING_BALANCE } from '../../src/services/ledger';
-import { closeBet, createBet, joinBet, settleBet } from '../../src/services/mode1Bet';
+import {
+  closeBet,
+  createBet,
+  joinBet,
+  joinUnifiedBet,
+  settleBet,
+  settleUnifiedBet,
+} from '../../src/services/mode1Bet';
 import {
   closeMode2Bet,
   createMode2Bet,
@@ -15,6 +22,26 @@ import { cancelSettlement, previewSettlementCancellation } from '../../src/servi
 
 const ADMIN_ID = 'admin-1';
 
+// createBet()은 이제 UNIFIED 베팅만 만들기 때문에, 레거시(LEGACY_MODE1) 모양의 픽스처가
+// 필요한 기존 테스트들은 Prisma로 직접 만든다.
+async function createLegacyBet(params: {
+  creatorId: string;
+  title: string;
+  amount: number;
+  options: string[];
+}) {
+  return prisma.bet.create({
+    data: {
+      creatorId: params.creatorId,
+      title: params.title,
+      amount: params.amount,
+      mode: 'LEGACY_MODE1',
+      options: { create: params.options.map((label) => ({ label })) },
+    },
+    include: { options: true },
+  });
+}
+
 async function setHouseBalance(amount: number) {
   await getOrCreateHouse();
   await prisma.$transaction((tx) =>
@@ -23,7 +50,7 @@ async function setHouseBalance(amount: number) {
 }
 
 async function createSettledMode1Bet(prefix: string) {
-  const bet = await createBet({
+  const bet = await createLegacyBet({
     creatorId: `${prefix}-creator`,
     title: `${prefix}-title`,
     amount: 1_000_000,
@@ -56,7 +83,7 @@ describe('previewSettlementCancellation / cancelSettlement - 공통 검증', () 
   });
 
   test('정산되지 않은 모드1 베팅(OPEN)에 시도하면 거부한다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'open-creator',
       title: 'open-title',
       amount: 1_000_000,
@@ -69,7 +96,7 @@ describe('previewSettlementCancellation / cancelSettlement - 공통 검증', () 
   });
 
   test('정산되지 않은 모드1 베팅(CLOSED)에 시도하면 거부한다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'closed-creator',
       title: 'closed-title',
       amount: 1_000_000,
@@ -98,7 +125,7 @@ describe('previewSettlementCancellation / cancelSettlement - 공통 검증', () 
 
 describe('cancelSettlement - 모드1', () => {
   test('승자에게 지급된 순수익과 하우스 세금을 정확히 상쇄하고 CLOSED로 되돌린다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'm1-creator',
       title: 'm1-title',
       amount: 1_000_000,
@@ -216,7 +243,7 @@ describe('cancelSettlement - preview만 호출했을 때는 아무 변경이 없
 
 describe('cancelSettlement - 원자성', () => {
   test('참가자 처리 중 하나가 실패하면 전부 롤백된다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'atomic-creator',
       title: 'atomic-title',
       amount: 1_000_000,
@@ -253,7 +280,7 @@ describe('cancelSettlement - 원자성', () => {
 
 describe('cancelSettlement - 재정산 흐름', () => {
   test('정산취소 후 settleBet으로 다시 정산할 수 있다', async () => {
-    const bet = await createBet({
+    const bet = await createLegacyBet({
       creatorId: 'resettle-creator',
       title: 'resettle-title',
       amount: 1_000_000,
@@ -290,5 +317,79 @@ describe('cancelSettlement - 재정산 흐름', () => {
     await expect(
       cancelSettlement({ betId: bet.id, requestedBy: ADMIN_ID, adminDiscordId: ADMIN_ID })
     ).rejects.toThrow(BetNotSettledError);
+  });
+});
+
+describe('cancelSettlement - 통합(UNIFIED) 베팅', () => {
+  test('저장된 payout으로 참가자를 상쇄하고 하우스 세금도 되돌려 CLOSED로 복귀한다', async () => {
+    const bet = await createBet({ creatorId: 'u-creator', title: 'u-title', options: ['A', 'B'] });
+    await joinUnifiedBet({ betId: bet.id, userId: 'u-winner', optionId: bet.options[0].id, amount: 3_000_000 });
+    await joinUnifiedBet({ betId: bet.id, userId: 'u-loser', optionId: bet.options[1].id, amount: 1_000_000 });
+    await closeBet({ betId: bet.id, requestedBy: 'u-creator' });
+    await settleUnifiedBet({ betId: bet.id, requestedBy: 'u-creator', winningOptionId: bet.options[0].id });
+
+    // losersTotal=1,000,000, tax=50,000, distributable=950,000, 승자 1명 전액 수령 -> payout=3,950,000
+    const winnerAfterSettle = await prisma.user.findUniqueOrThrow({ where: { discordId: 'u-winner' } });
+    expect(winnerAfterSettle.balance).toBe(STARTING_BALANCE - 3_000_000 + 3_950_000);
+    const houseAfterSettle = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(houseAfterSettle.balance).toBe(50_000);
+
+    const preview = await previewSettlementCancellation({
+      betId: bet.id,
+      requestedBy: ADMIN_ID,
+      adminDiscordId: ADMIN_ID,
+    });
+    expect(preview.mode).toBe(1);
+    expect(preview.corrections).toEqual([{ userId: 'u-winner', amount: -3_950_000 }]);
+    expect(preview.houseDelta).toBe(-50_000);
+
+    await cancelSettlement({ betId: bet.id, requestedBy: ADMIN_ID, adminDiscordId: ADMIN_ID });
+
+    const winnerAfterCancel = await prisma.user.findUniqueOrThrow({ where: { discordId: 'u-winner' } });
+    expect(winnerAfterCancel.balance).toBe(STARTING_BALANCE - 3_000_000);
+
+    const houseAfterCancel = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(houseAfterCancel.balance).toBe(0);
+
+    const betAfter = await prisma.bet.findUniqueOrThrow({ where: { id: bet.id } });
+    expect(betAfter.status).toBe('CLOSED');
+    expect(betAfter.winningOptionId).toBeNull();
+    expect(betAfter.settledAt).toBeNull();
+  });
+
+  test('참가자 상쇄는 재계산이 아니라 정산 시점에 저장된 BetEntry.payout 값을 그대로 사용한다', async () => {
+    const bet = await createBet({ creatorId: 'u-payout-creator', title: 'u-payout-title', options: ['A', 'B'] });
+    await joinUnifiedBet({
+      betId: bet.id,
+      userId: 'u-payout-winner',
+      optionId: bet.options[0].id,
+      amount: 3_000_000,
+    });
+    await joinUnifiedBet({
+      betId: bet.id,
+      userId: 'u-payout-loser',
+      optionId: bet.options[1].id,
+      amount: 1_000_000,
+    });
+    await closeBet({ betId: bet.id, requestedBy: 'u-payout-creator' });
+    await settleUnifiedBet({
+      betId: bet.id,
+      requestedBy: 'u-payout-creator',
+      winningOptionId: bet.options[0].id,
+    });
+
+    // 저장된 payout을 일부러 바꿔서, 상쇄 로직이 재계산이 아니라 이 값을 그대로 읽는지 확인한다
+    await prisma.betEntry.updateMany({
+      where: { betId: bet.id, userId: 'u-payout-winner' },
+      data: { payout: 1_234_567 },
+    });
+
+    const preview = await previewSettlementCancellation({
+      betId: bet.id,
+      requestedBy: ADMIN_ID,
+      adminDiscordId: ADMIN_ID,
+    });
+
+    expect(preview.corrections).toEqual([{ userId: 'u-payout-winner', amount: -1_234_567 }]);
   });
 });
