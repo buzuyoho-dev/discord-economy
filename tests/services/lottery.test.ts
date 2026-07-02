@@ -76,6 +76,16 @@ describe('purchaseLottery - drawDate 계산', () => {
     const ticket = await prisma.lotteryTicket.findFirstOrThrow({ where: { userId: 'l-draw-2' } });
     expect(ticket.drawDate.toISOString()).toBe('2026-07-02T00:00:00.000Z');
   });
+
+  test('정확히 정오(KST 12:00:00.000)에 구매해도 drawDate는 내일 날짜(KST) - 경계값, 리팩터 후에도 구매 쪽 동작은 그대로여야 한다', async () => {
+    await getOrCreateUser('l-draw-3');
+    const exactlyNoonKst = new Date('2026-07-01T03:00:00.000Z'); // KST 정확히 12:00:00
+
+    await purchaseLottery({ discordId: 'l-draw-3', chosenNumber: 5, now: exactlyNoonKst });
+
+    const ticket = await prisma.lotteryTicket.findFirstOrThrow({ where: { userId: 'l-draw-3' } });
+    expect(ticket.drawDate.toISOString()).toBe('2026-07-02T00:00:00.000Z');
+  });
 });
 
 describe('purchaseLottery - 숫자 범위 검증', () => {

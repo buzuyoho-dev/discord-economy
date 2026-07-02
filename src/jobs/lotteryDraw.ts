@@ -1,7 +1,7 @@
 import type { Client } from 'discord.js';
 import { env } from '../config/env';
+import { kstMidnightUtc } from '../services/kst';
 import { runLotteryDraw } from '../services/lotteryDraw';
-import { getDrawDate } from '../services/lottery';
 
 const LOTTERY_DRAW_CRON_EXPRESSION = '0 12 * * *'; // 매일 낮 12시
 const TIMEZONE = 'Asia/Seoul';
@@ -15,8 +15,10 @@ export async function scheduleLotteryDraw(client: Client) {
 
 export async function runDailyLotteryDraw(client: Client) {
   try {
-    // cron이 정오에 실행되므로 now의 drawDate는 오늘 KST 날짜
-    const drawDate = getDrawDate(new Date());
+    // 정오 이전/이후를 나누는 getDrawDate()는 여기서 쓰면 안 된다 - cron이 정확히 KST 정오에
+    // 실행되므로 그 분기를 타면 "내일"로 계산되어 오늘 마감되는 회차를 찾지 못한다.
+    // 여기서는 분기 없이 "지금(=마감 시점) KST 날짜"만 그대로 쓴다.
+    const drawDate = kstMidnightUtc(new Date());
     const result = await runLotteryDraw({ drawDate });
     await announceLotteryResult(client, result);
   } catch (error) {
