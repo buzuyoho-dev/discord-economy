@@ -13,6 +13,7 @@ import {
 import { env } from '../config/env';
 import { pendingPlayGrants } from '../events/minigamePlayGrantState';
 import { NotAdminError } from '../services/adminGrant';
+import { BotTargetError } from '../services/discordTargetGuard';
 import {
   grantMinigamePlays,
   InvalidPlayGrantCountError,
@@ -47,15 +48,17 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   const count = interaction.options.getInteger('횟수', true);
   const targetUser = interaction.options.getUser('유저');
   const reason = interaction.options.getString('사유') ?? undefined;
-  const gameLabel = MINIGAME_REGISTRY[game].label;
 
   try {
+    const gameLabel = MINIGAME_REGISTRY[game].label;
+
     if (targetUser) {
       // 💡 유저를 지정하면 미리보기/확인 절차 없이 바로 지급한다
       // (요구사항: 확인 버튼은 "전체" 대상일 때만 필요).
       const result = await grantMinigamePlays({
         game,
         targetUserId: targetUser.id,
+        targetIsBot: targetUser.bot,
         count,
         reason,
         requestedBy: interaction.user.id,
@@ -115,6 +118,10 @@ export async function execute(interaction: ChatInputCommandInteraction) {
         content: '횟수는 1 이상의 정수여야 합니다.',
         flags: MessageFlags.Ephemeral,
       });
+      return;
+    }
+    if (error instanceof BotTargetError) {
+      await interaction.reply({ content: '봇에게는 지급할 수 없습니다.', flags: MessageFlags.Ephemeral });
       return;
     }
     throw error;

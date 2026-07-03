@@ -8,6 +8,7 @@ import { Prisma, TransactionType } from '@prisma/client';
 import { prisma } from '../db/client';
 import { NotAdminError } from './adminGrant';
 import { BLACKJACK_GAME_TYPE, MAX_PLAYS_PER_DAY } from './blackjackGame';
+import { assertNotBotTarget } from './discordTargetGuard';
 import { kstMidnightUtc } from './kst';
 import { applyTransaction, getOrCreateUser } from './ledger';
 
@@ -139,6 +140,7 @@ async function resolveTargetUserIds(db: Db, targetUserId: string | undefined): P
 export interface MinigamePlayGrantParams {
   game: MinigameChoice;
   targetUserId?: string;
+  targetIsBot?: boolean;
   count: number;
   requestedBy: string;
   adminDiscordId: string | undefined;
@@ -175,6 +177,8 @@ export async function grantMinigamePlays(
   assertValidCount(params.count);
 
   if (params.targetUserId) {
+    // 💡 봇 계정에게는 지급할 수 없다 - getOrCreateUser를 부르기 전에 먼저 걸러낸다.
+    assertNotBotTarget(params.targetIsBot, params.targetUserId);
     await getOrCreateUser(params.targetUserId);
   }
 

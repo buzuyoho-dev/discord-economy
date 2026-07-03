@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { prisma } from '../../src/db/client';
 import { NotAdminError } from '../../src/services/adminGrant';
 import { BLACKJACK_GAME_TYPE, MAX_PLAYS_PER_DAY } from '../../src/services/blackjackGame';
+import { BotTargetError } from '../../src/services/discordTargetGuard';
 import { kstMidnightUtc } from '../../src/services/kst';
 import { getOrCreateUser, STARTING_BALANCE } from '../../src/services/ledger';
 import {
@@ -178,6 +179,23 @@ describe('grantMinigamePlays - 단일 유저 대상', () => {
       where: { userId: 'grant-single-4', type: 'MINIGAME_PLAY_GRANT' },
     });
     expect(txs[0].description).toBe('블랙잭 잔여 횟수 +1 지급');
+  });
+
+  test('대상이 봇이면 거부되고 User row 자체가 생성되지 않는다', async () => {
+    await expect(
+      grantMinigamePlays({
+        game: 'BLACKJACK',
+        targetUserId: 'grant-single-bot',
+        targetIsBot: true,
+        count: 1,
+        requestedBy: ADMIN_ID,
+        adminDiscordId: ADMIN_ID,
+        now: NOW,
+      })
+    ).rejects.toThrow(BotTargetError);
+
+    const botUser = await prisma.user.findUnique({ where: { discordId: 'grant-single-bot' } });
+    expect(botUser).toBeNull();
   });
 });
 
