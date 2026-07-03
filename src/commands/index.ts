@@ -16,6 +16,7 @@ import * as gambleExtraPurchase from './gambleExtraPurchase';
 import * as house from './house';
 import * as lotteryBuy from './lotteryBuy';
 import * as loanCreate from './loanCreate';
+import * as loanMyLoans from './loanMyLoans';
 import * as loanRepay from './loanRepay';
 import * as mode1BetClose from './mode1BetClose';
 import * as mode1BetCreate from './mode1BetCreate';
@@ -52,6 +53,7 @@ export const commands = new Map<string, Command>([
   [transfer.data.name, transfer],
   [loanCreate.data.name, loanCreate],
   [loanRepay.data.name, loanRepay],
+  [loanMyLoans.data.name, loanMyLoans],
   [ranking.data.name, ranking],
   [settlementCancel.data.name, settlementCancel],
   [economyConfigSet.data.name, economyConfigSet],

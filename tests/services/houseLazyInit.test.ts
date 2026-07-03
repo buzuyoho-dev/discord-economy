@@ -3,7 +3,7 @@ import { prisma } from '../../src/db/client';
 import { gamble, GAMBLE_AMOUNT } from '../../src/services/gamble';
 import { HOUSE_ID } from '../../src/services/house';
 import { getOrCreateUser } from '../../src/services/ledger';
-import { createLoan } from '../../src/services/loan';
+import { acceptLoan, requestLoan } from '../../src/services/loan';
 import { closeBet, joinBet, settleBet } from '../../src/services/mode1Bet';
 import {
   createMode2Bet,
@@ -158,7 +158,12 @@ describe('House row 없이 처음 실행 - 대출', () => {
     await getOrCreateUser('fresh-lender');
     await getOrCreateUser('fresh-borrower');
 
-    await createLoan({ lenderId: 'fresh-lender', borrowerId: 'fresh-borrower', principal: 1_000_000 });
+    const requested = await requestLoan({
+      lenderId: 'fresh-lender',
+      borrowerId: 'fresh-borrower',
+      principal: 1_000_000,
+    });
+    await acceptLoan({ loanId: requested.id, acceptedBy: 'fresh-borrower' });
 
     const house = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
     expect(house.balance).toBe(20_000); // 2% 개설 수수료

@@ -4,7 +4,7 @@ import { CreditBannedError } from '../../src/services/creditBan';
 import { BotTargetError } from '../../src/services/discordTargetGuard';
 import { getOrCreateHouse, HOUSE_ID } from '../../src/services/house';
 import { getOrCreateUser } from '../../src/services/ledger';
-import { createLoan } from '../../src/services/loan';
+import { acceptLoan, requestLoan } from '../../src/services/loan';
 import {
   AlreadyTransferredTodayError,
   CannotTransferToSelfError,
@@ -195,15 +195,16 @@ describe('transferPoints', () => {
     await getOrCreateUser('receiver-cb-t1');
     await getOrCreateHouse();
 
-    const loan = await createLoan({
+    const requestedAt = new Date('2026-06-01T00:00:00.000Z');
+    const requested = await requestLoan({
       lenderId: 'lender-cb-t1',
       borrowerId: 'sender-cb-t1',
       principal: 1_000_000,
-      now: new Date('2026-06-01T00:00:00.000Z'),
-      dueAt: new Date('2026-06-08T00:00:00.000Z'),
+      now: requestedAt,
     });
+    const loan = await acceptLoan({ loanId: requested.id, acceptedBy: 'sender-cb-t1', now: requestedAt });
 
-    const elevenDaysLate = new Date(loan.dueAt.getTime() + 11 * ONE_DAY_MS);
+    const elevenDaysLate = new Date(loan.dueAt!.getTime() + 11 * ONE_DAY_MS);
 
     await expect(
       transferPoints({

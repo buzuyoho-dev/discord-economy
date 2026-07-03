@@ -194,6 +194,7 @@ enum LoanStatus {
   REPAID
   VOIDED
   PENDING
+  DECLINED
 }
 
 model Loan {
@@ -201,7 +202,8 @@ model Loan {
   lenderId   String
   borrowerId String
   principal  Int
-  dueAt      DateTime
+  dueDays    Int?
+  dueAt      DateTime?
   status     LoanStatus @default(ACTIVE)
   createdAt  DateTime   @default(now())
   repaidAt   DateTime?
