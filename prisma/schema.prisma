@@ -29,6 +29,10 @@ enum TransactionType {
   BLACKJACK_WIN
   BLACKJACK_LOSE
   BLACKJACK_PUSH
+  RPS_BET
+  RPS_WIN
+  RPS_LOSE
+  RPS_VOID
 }
 
 model User {

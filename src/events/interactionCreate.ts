@@ -8,6 +8,7 @@ import {
   isMode2BetAmountModal,
   isMode2BetChooseButton,
 } from './mode2BetInteraction';
+import { handleRpsActionButton, isRpsActionButton } from './rpsButton';
 import { handleSettlementCancelButton, isSettlementCancelButton } from './settlementCancelButton';
 import {
   handleUnifiedBetAmountModal,
@@ -106,6 +107,15 @@ export async function handleInteractionCreate(interaction: Interaction) {
       await handleBlackjackActionButton(interaction);
     } catch (error) {
       await replyWithGenericError(interaction, '블랙잭 히트/스탠드 처리 중 오류 발생', error);
+    }
+    return;
+  }
+
+  if (interaction.isButton() && isRpsActionButton(interaction.customId)) {
+    try {
+      await handleRpsActionButton(interaction);
+    } catch (error) {
+      await replyWithGenericError(interaction, '가위바위보 버튼 처리 중 오류 발생', error);
     }
     return;
   }

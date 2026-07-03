@@ -23,6 +23,7 @@ import * as mode1BetSettle from './mode1BetSettle';
 import * as mode2BetClose from './mode2BetClose';
 import * as mode2BetSettle from './mode2BetSettle';
 import * as ranking from './ranking';
+import * as rps from './rps';
 import * as settlementCancel from './settlementCancel';
 import * as transfer from './transfer';
 
@@ -45,6 +46,7 @@ export const commands = new Map<string, Command>([
   [mode1BetSettle.data.name, mode1BetSettle],
   [mode2BetClose.data.name, mode2BetClose],
   [mode2BetSettle.data.name, mode2BetSettle],
+  [rps.data.name, rps],
   [transfer.data.name, transfer],
   [loanCreate.data.name, loanCreate],
   [loanRepay.data.name, loanRepay],
