@@ -72,3 +72,18 @@ describe('formatTransactionLineWithUser', () => {
     expect(line).toContain('환급');
   });
 });
+
+describe('MINIGAME_PLAY_GRANT 라벨', () => {
+  test('미니게임 횟수 지급 타입은 전용 한글 라벨로 보여준다', () => {
+    const line = formatTransactionLine({
+      type: 'MINIGAME_PLAY_GRANT',
+      amount: 0,
+      balanceAfter: 10_000_000,
+      description: '블랙잭 잔여 횟수 +2 지급 (오픈 기념 이벤트)',
+      createdAt: new Date('2026-07-06T03:00:00.000Z'),
+    });
+
+    expect(line).toContain('미니게임 횟수 지급');
+    expect(line).toContain('블랙잭 잔여 횟수 +2 지급 (오픈 기념 이벤트)');
+  });
+});

@@ -29,6 +29,7 @@ export const TRANSACTION_TYPE_LABELS: Record<string, string> = {
   RPS_WIN: '가위바위보 승리',
   RPS_LOSE: '가위바위보 패배',
   RPS_VOID: '가위바위보 무효',
+  MINIGAME_PLAY_GRANT: '미니게임 횟수 지급',
 };
 
 export interface TransactionLike {

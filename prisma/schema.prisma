@@ -33,6 +33,7 @@ enum TransactionType {
   RPS_WIN
   RPS_LOSE
   RPS_VOID
+  MINIGAME_PLAY_GRANT
 }
 
 model User {
