@@ -4,6 +4,30 @@
 
 ## 1. 오늘(2026-07-03) 완료된 작업
 
+### 미니게임 횟수 지급 상시 커맨드 (`/횟수지급`)
+1회성 스크립트(`grantBlackjackBonus.ts`)로 처리하던 "미니게임 플레이 횟수 지급"을
+상시 관리자 커맨드로 승격. 설계 문서: `docs/superpowers/specs/2026-07-03-minigame-play-count-grant-design.md`,
+구현 계획: `docs/superpowers/plans/2026-07-03-minigame-play-count-grant.md`.
+
+- **범위**: "오늘 잔여 플레이 횟수"(`MinigamePlayLog` 기반) 개념은 현재 블랙잭에만 존재함을
+  확인(RPS는 의도적으로 일일 제한 없음, 복권은 다른 모델). `MINIGAME_REGISTRY`로 향후
+  확장 가능한 구조만 만들고, 이번엔 블랙잭만 지원.
+- `src/services/minigamePlayGrant.ts` (신규): 코어 함수(`buildMinigamePlayGrantPlan`/
+  `applyMinigamePlayGrant`, targetUserIds를 받기만 함)와 커맨드 전용 래퍼
+  (`previewMinigamePlayGrant`/`grantMinigamePlays`, 관리자 인증+대상 결정 포함)로 분리.
+- `Transaction`에 `MINIGAME_PLAY_GRANT` 타입(amount: 0)으로 기록 → `/포인트내역`에서
+  라벨 매핑만 추가하고 그대로 조회 가능.
+- `src/commands/minigamePlayGrant.ts` + `src/events/minigamePlayGrantButton.ts` +
+  `src/events/minigamePlayGrantState.ts` (신규): 유저 지정 시 즉시 지급, 전체 유저 대상이면
+  버튼 확인(confirm) 필요 (`/정산취소`, RPS 도전 패턴 재사용).
+- 기존 `src/scripts/grantBlackjackBonus.ts`도 새 코어 함수를 재사용하도록 리팩터 (대상
+  선정 로직인 `--active-days`는 그대로 유지).
+
+### ⚠️ 다음 세션에서 확인 필요 (추가)
+- [ ] `/횟수지급`은 신규 슬래시 커맨드이므로 `npm run deploy-commands` 실행(디스코드에 실제
+      등록) 여부 확인
+- [ ] 실제 디스코드에서 `/횟수지급` (유저 지정 / 전체 대상 confirm 버튼) 동작 테스트
+
 ### 미니게임 2종
 - 블랙잭, 가위바위보 스펙 작성 및 구현 완료
 - 관련 문서: `blackjack-minigame-spec.md`, `rps-minigame-spec.md`
