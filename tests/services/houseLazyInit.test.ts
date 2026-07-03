@@ -11,8 +11,8 @@ import {
   placeMode2Bet,
   settleMode2Bet,
 } from '../../src/services/mode2Bet';
+import { distributionBatch } from '../../src/services/distributionBatch';
 import { transferPoints } from '../../src/services/transfer';
-import { weeklyDistribution } from '../../src/services/weeklyDistribution';
 
 const forceWin = () => 0;
 const forceLose = () => 0.99;
@@ -185,9 +185,9 @@ describe('House row 없이 처음 실행 - 양도', () => {
   });
 });
 
-describe('House row 없이 처음 실행 - 주간 환급/쿠폰', () => {
+describe('House row 없이 처음 실행 - 환급/쿠폰 배치', () => {
   test('유저도 House도 전혀 없는 완전히 빈 DB에서 호출해도 크래시하지 않는다', async () => {
-    const result = await weeklyDistribution();
+    const result = await distributionBatch();
 
     expect(result.distributed).toBe(false);
     expect(result.couponsIssued).toBe(0);

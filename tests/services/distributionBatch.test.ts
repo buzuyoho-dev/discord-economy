@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { prisma } from '../../src/db/client';
 import { updateEconomyConfig } from '../../src/services/economyConfig';
 import { getOrCreateHouse, HOUSE_ID } from '../../src/services/house';
-import { weeklyDistribution } from '../../src/services/weeklyDistribution';
+import { distributionBatch } from '../../src/services/distributionBatch';
 
 async function setHouse(balance: number, lastRebateBalance: number) {
   await getOrCreateHouse();
@@ -15,17 +15,18 @@ async function createUsers(prefix: string, count: number, balanceOf: (i: number)
   }
 }
 
-describe('weeklyDistribution - 정상 케이스', () => {
+describe('distributionBatch - 정상 케이스', () => {
   test('순증가분에 환급 비율을 적용해 하위 30%는 가중치, 나머지는 균등 분배한다', async () => {
     await createUsers('u', 10, (i) => i * 1_000_000);
     await setHouse(10_000_000, 0);
 
-    const result = await weeklyDistribution(new Date('2026-07-05T00:00:00.000Z'));
+    const result = await distributionBatch(new Date('2026-07-05T00:00:00.000Z'));
 
     expect(result.distributed).toBe(true);
     expect(result.fundAmount).toBe(500_000); // floor(10,000,000 * 0.05)
     expect(result.lowerTierCount).toBe(3); // floor(10 * 0.3)
     expect(result.couponsIssued).toBe(3);
+    expect(result.couponsSkipped).toBe(0);
 
     // totalWeight = 10 + 3*(1.5-1) = 11.5, unitShare = floor(500,000 / 11.5) = 43,478
     const lowerTierIds = ['u1', 'u2', 'u3'];
@@ -58,12 +59,12 @@ describe('weeklyDistribution - 정상 케이스', () => {
   });
 });
 
-describe('weeklyDistribution - 재원이 0 이하', () => {
+describe('distributionBatch - 재원이 0 이하', () => {
   test('분배는 스킵하지만 lastRebateBalance/lastRebateAt은 현재 값으로 갱신된다', async () => {
     await createUsers('s', 5, () => 1_000_000);
     await setHouse(5_000_000, 6_000_000); // lastRebateBalance > balance -> netGain 클램프로 0
 
-    const result = await weeklyDistribution(new Date('2026-07-05T00:00:00.000Z'));
+    const result = await distributionBatch(new Date('2026-07-05T00:00:00.000Z'));
 
     expect(result.distributed).toBe(false);
     expect(result.fundAmount).toBe(0);
@@ -85,7 +86,7 @@ describe('weeklyDistribution - 재원이 0 이하', () => {
   });
 });
 
-describe('weeklyDistribution - 원자성', () => {
+describe('distributionBatch - 원자성', () => {
   test('분배 도중 하우스 잔고 부족으로 실패하면 전부 롤백된다', async () => {
     await createUsers('atomic', 3, () => 1_000_000);
     // lastRebateBalance를 비정상적으로 낮게(음수) 잡아 netGain이 실제 하우스 잔고보다
@@ -98,7 +99,7 @@ describe('weeklyDistribution - 원자성', () => {
       lowerTierWeight: 1.5,
     });
 
-    await expect(weeklyDistribution(new Date('2026-07-05T00:00:00.000Z'))).rejects.toThrow();
+    await expect(distributionBatch(new Date('2026-07-05T00:00:00.000Z'))).rejects.toThrow();
 
     for (let i = 1; i <= 3; i++) {
       const user = await prisma.user.findUniqueOrThrow({ where: { discordId: `atomic${i}` } });
@@ -111,5 +112,97 @@ describe('weeklyDistribution - 원자성', () => {
 
     const coupons = await prisma.bettingDoubleCoupon.findMany();
     expect(coupons).toHaveLength(0); // 쿠폰 발급도 함께 롤백됨
+  });
+});
+
+describe('distributionBatch - 베팅2배쿠폰 보유 개수 제한', () => {
+  test('미사용+미만료 쿠폰을 0장 또는 1장 보유 중이면 정상 발급된다', async () => {
+    await createUsers('cap', 10, (i) => i * 1_000_000); // 하위 3명: cap1, cap2, cap3
+    await setHouse(10_000_000, 0);
+
+    // cap2는 이미 유효 쿠폰 1장을 보유 중 (0장인 cap1, cap3와 대비)
+    const existing = await prisma.bettingDoubleCoupon.create({
+      data: { userId: 'cap2', expiresAt: new Date('2026-07-20T00:00:00.000Z') },
+    });
+
+    const result = await distributionBatch(new Date('2026-07-05T00:00:00.000Z'));
+
+    expect(result.couponsIssued).toBe(3);
+    expect(result.couponsSkipped).toBe(0);
+
+    const cap1Coupons = await prisma.bettingDoubleCoupon.findMany({ where: { userId: 'cap1' } });
+    expect(cap1Coupons).toHaveLength(1);
+
+    const cap2Coupons = await prisma.bettingDoubleCoupon.findMany({
+      where: { userId: 'cap2' },
+      orderBy: { issuedAt: 'asc' },
+    });
+    expect(cap2Coupons).toHaveLength(2);
+    expect(cap2Coupons[0].id).toBe(existing.id); // 기존 쿠폰은 그대로 유지된다
+  });
+
+  test('이미 유효한 쿠폰을 2장 보유 중이면 발급을 스킵하고 기존 2장을 그대로 유지한다', async () => {
+    await createUsers('capb', 10, (i) => i * 1_000_000); // 하위 3명: capb1, capb2, capb3
+    await setHouse(10_000_000, 0);
+
+    await prisma.bettingDoubleCoupon.create({
+      data: { userId: 'capb1', expiresAt: new Date('2026-07-10T00:00:00.000Z') },
+    });
+    await prisma.bettingDoubleCoupon.create({
+      data: { userId: 'capb1', expiresAt: new Date('2026-07-15T00:00:00.000Z') },
+    });
+
+    const result = await distributionBatch(new Date('2026-07-05T00:00:00.000Z'));
+
+    expect(result.couponsIssued).toBe(2); // capb2, capb3만
+    expect(result.couponsSkipped).toBe(1); // capb1은 이미 2장 보유로 스킵
+
+    const capb1Coupons = await prisma.bettingDoubleCoupon.findMany({ where: { userId: 'capb1' } });
+    expect(capb1Coupons).toHaveLength(2); // 새로 발급되지 않고 그대로 2장
+  });
+
+  test('2장 중 1장이 이미 만료됐으면 유효한 것만 카운트해서 정상 발급된다', async () => {
+    await createUsers('capc', 10, (i) => i * 1_000_000); // 하위 3명: capc1, capc2, capc3
+    await setHouse(10_000_000, 0);
+
+    await prisma.bettingDoubleCoupon.create({
+      data: { userId: 'capc1', expiresAt: new Date('2026-07-01T00:00:00.000Z') }, // 실행 시점(07-05) 기준 이미 만료
+    });
+    await prisma.bettingDoubleCoupon.create({
+      data: { userId: 'capc1', expiresAt: new Date('2026-07-20T00:00:00.000Z') }, // 유효
+    });
+
+    const result = await distributionBatch(new Date('2026-07-05T00:00:00.000Z'));
+
+    expect(result.couponsIssued).toBe(3); // capc1도 포함 (유효 쿠폰은 1장뿐이므로)
+    expect(result.couponsSkipped).toBe(0);
+
+    const capc1Coupons = await prisma.bettingDoubleCoupon.findMany({ where: { userId: 'capc1' } });
+    expect(capc1Coupons).toHaveLength(3); // 만료 1 + 기존 유효 1 + 신규 발급 1
+  });
+});
+
+describe('distributionBatch - 실행 간격이 짧아져도 순증가분만 반영', () => {
+  test('월요일 실행 후 이틀 뒤 수요일에 실행해도 그 사이의 순증가분만 재원으로 계산된다', async () => {
+    await setHouse(1_000_000, 0);
+
+    const monday = new Date('2026-07-06T00:00:00.000Z');
+    const mondayResult = await distributionBatch(monday);
+    expect(mondayResult.fundAmount).toBe(50_000); // floor(1,000,000 * 0.05)
+
+    const houseAfterMonday = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(houseAfterMonday.lastRebateBalance).toBe(1_000_000); // 유저가 없어 분배는 없었지만 체크포인트는 갱신됨
+
+    // 월/수 사이(이틀) 다른 활동으로 하우스 잔고가 300,000 늘었다고 가정
+    await prisma.house.update({ where: { id: HOUSE_ID }, data: { balance: 1_300_000 } });
+
+    const wednesday = new Date('2026-07-08T00:00:00.000Z');
+    const wednesdayResult = await distributionBatch(wednesday);
+
+    // 순증가분은 1,300,000 - 1,000,000(월요일 체크포인트) = 300,000만 반영되어야 한다
+    expect(wednesdayResult.fundAmount).toBe(15_000); // floor(300,000 * 0.05)
+
+    const houseAfterWednesday = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
+    expect(houseAfterWednesday.lastRebateBalance).toBe(1_300_000);
   });
 });
