@@ -2,6 +2,10 @@
 // +2씩 한 번만 지급하는 1회성 스크립트다. 상시 슬래시 커맨드가 아니라 관리자가 터미널에서
 // 딱 한 번 실행하고 끝내는 용도라서 src/commands/index.ts에는 등록하지 않는다.
 //
+// 실제 "MinigamePlayLog 갱신 + Transaction 기록" 로직은 src/services/minigamePlayGrant.ts의
+// 코어 함수를 그대로 재사용한다 - /횟수지급 슬래시 커맨드와 로직이 중복되지 않게 하기 위함이다.
+// 이 스크립트만의 역할은 "--active-days로 대상을 고르는 것"과 "CLI/로그 파일 출력"뿐이다.
+//
 // ⚠️ 중요: 이 보너스는 "영구히 +2"가 아니라 "오늘(KST 기준) 하루만 +2"다.
 // 블랙잭 플레이 횟수는 MinigamePlayLog에 날짜별로 따로 저장되고 자정(KST)이 지나면
 // 새 날짜 row가 만들어지면서 자연스럽게 초기화되기 때문에, 이 보너스도 딱 오늘치에만 적용된다.
@@ -16,8 +20,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../db/client';
-import { BLACKJACK_GAME_TYPE, MAX_PLAYS_PER_DAY } from '../services/blackjackGame';
-import { kstMidnightUtc } from '../services/kst';
+import {
+  applyMinigamePlayGrant,
+  buildMinigamePlayGrantPlan,
+  type MinigamePlayGrantPlanItem,
+} from '../services/minigamePlayGrant';
 
 // 💡 distributionBatch.ts와 동일한 패턴: 트랜잭션 안(tx)/밖(prisma) 어느 쪽에서 불려도 되게 타입을 열어둔다.
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -25,24 +32,12 @@ type Db = Prisma.TransactionClient | typeof prisma;
 export const BONUS_PLAYS = 2; // 💡 오늘 잔여 횟수에 몇 번을 얹어줄지 (이번 이벤트 요청: +2)
 export const EVENT_REASON = '오픈 기념 이벤트 - 블랙잭 하루 잔여 횟수 +2 일괄 지급';
 
-// 💡 유저 한 명의 "지급 전 -> 지급 후" 잔여 횟수를 담는 미리보기 항목.
-// dry-run이든 실제 실행이든 항상 이 배열을 만들어서, 실행 결과 로그에도 그대로 남긴다.
-export interface GrantPlanItem {
-  userId: string;
-  playsRemainingBefore: number;
-  playsRemainingAfter: number;
-}
+export type GrantPlanItem = MinigamePlayGrantPlanItem;
 
 export interface GrantBlackjackBonusResult {
   targetScope: string;
   targetUserIds: string[];
   plan: GrantPlanItem[];
-}
-
-// 💡 MinigamePlayLog.count(오늘 플레이한 횟수)로부터 "오늘 남은 횟수"를 계산한다.
-// count가 0이면 아직 한 번도 안 한 것 -> MAX_PLAYS_PER_DAY(5)가 그대로 남아있는 것.
-function playsRemainingFromCount(count: number): number {
-  return MAX_PLAYS_PER_DAY - count;
 }
 
 // 💡 지급 "대상"을 고르는 함수.
@@ -78,44 +73,29 @@ export async function grantBlackjackBonus(options: {
   now?: Date;
 }): Promise<GrantBlackjackBonusResult> {
   const now = options.now ?? new Date();
-  const playDate = kstMidnightUtc(now); // 💡 "오늘"을 KST 자정 기준으로 고정 - 블랙잭 로직과 동일한 날짜 계산 함수를 재사용한다.
 
   // 💡 전체를 하나의 트랜잭션으로 묶어서, 중간에 에러가 나면 일부만 지급되는 일이 없게 한다
   // (기존 emergencyIssueLowerTierCoupons.ts, resetServerBalances.ts와 동일한 패턴).
   return prisma.$transaction(async (tx) => {
     const { scope, userIds: targetUserIds } = await getTargetUserIds(tx, options.activeSinceDays, now);
 
-    // 💡 대상 유저들이 오늘 이미 몇 번 플레이했는지 한 번에 조회해서 "지급 전" 값을 만든다.
-    const existingLogs = await tx.minigamePlayLog.findMany({
-      where: { userId: { in: targetUserIds }, gameType: BLACKJACK_GAME_TYPE, playDate },
-    });
-    const countByUserId = new Map(existingLogs.map((log) => [log.userId, log.count]));
-
-    const plan: GrantPlanItem[] = targetUserIds.map((userId) => {
-      const countBefore = countByUserId.get(userId) ?? 0;
-      return {
-        userId,
-        playsRemainingBefore: playsRemainingFromCount(countBefore),
-        // 💡 "잔여 횟수 +2"는 곧 "오늘 플레이 횟수(count) -2"와 같다 (count가 낮을수록 남은 횟수가 많아짐).
-        playsRemainingAfter: playsRemainingFromCount(countBefore - BONUS_PLAYS),
-      };
-    });
-
     if (options.execute) {
-      for (const userId of targetUserIds) {
-        // 💡 오늘 기록이 아예 없던 유저는 count: -BONUS_PLAYS로 새로 만든다.
-        // (예: -2로 시작하면 나중에 실제로 2번 플레이해도 count는 0이 되어 5번을 꽉 채워 쓸 수 있다 = 기본 5 + 보너스 2)
-        // 이미 기록이 있는 유저는 count를 BONUS_PLAYS만큼 그냥 깎아준다.
-        await tx.minigamePlayLog.upsert({
-          where: {
-            userId_gameType_playDate: { userId, gameType: BLACKJACK_GAME_TYPE, playDate },
-          },
-          create: { userId, gameType: BLACKJACK_GAME_TYPE, playDate, count: -BONUS_PLAYS },
-          update: { count: { decrement: BONUS_PLAYS } },
-        });
-      }
+      const { plan } = await applyMinigamePlayGrant(tx, {
+        game: 'BLACKJACK',
+        targetUserIds,
+        count: BONUS_PLAYS,
+        reason: EVENT_REASON,
+        now,
+      });
+      return { targetScope: scope, targetUserIds, plan };
     }
 
+    const { plan } = await buildMinigamePlayGrantPlan(tx, {
+      game: 'BLACKJACK',
+      targetUserIds,
+      count: BONUS_PLAYS,
+      now,
+    });
     return { targetScope: scope, targetUserIds, plan };
   });
 }
