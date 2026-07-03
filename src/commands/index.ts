@@ -22,6 +22,7 @@ import * as mode1BetCreate from './mode1BetCreate';
 import * as mode1BetSettle from './mode1BetSettle';
 import * as mode2BetClose from './mode2BetClose';
 import * as mode2BetSettle from './mode2BetSettle';
+import * as pointHistory from './pointHistory';
 import * as ranking from './ranking';
 import * as rps from './rps';
 import * as settlementCancel from './settlementCancel';
@@ -55,4 +56,5 @@ export const commands = new Map<string, Command>([
   [economyConfigSet.data.name, economyConfigSet],
   [economyConfigView.data.name, economyConfigView],
   [couponList.data.name, couponList],
+  [pointHistory.data.name, pointHistory],
 ]);
