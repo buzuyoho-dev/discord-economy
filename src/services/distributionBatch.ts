@@ -1,12 +1,14 @@
-import { TransactionType } from '@prisma/client';
+import { Prisma, TransactionType } from '@prisma/client';
 import { prisma } from '../db/client';
 import { getOrCreateEconomyConfig } from './economyConfig';
 import { applyHouseTransaction, getOrCreateHouse, HOUSE_ID } from './house';
 import { applyTransaction } from './ledger';
 
+type Db = Prisma.TransactionClient | typeof prisma;
+
 const LOWER_TIER_RATIO = 0.3;
 const COUPON_VALIDITY_MS = 7 * 24 * 60 * 60 * 1000;
-const MAX_VALID_COUPONS_PER_USER = 2;
+export const MAX_VALID_COUPONS_PER_USER = 2;
 
 export interface DistributionBatchResult {
   distributed: boolean;
@@ -15,6 +17,52 @@ export interface DistributionBatchResult {
   couponsIssued: number;
   couponsSkipped: number;
   perUserAmounts: Map<string, number>;
+}
+
+// 순위(잔액) 기준 하위 30% 유저 discordId 목록. distributionBatch()와 1회성 긴급 발급 스크립트
+// 양쪽에서 동일한 "하위 플레이어" 판정을 재사용한다.
+export async function getLowerTierUserIds(db: Db): Promise<string[]> {
+  const users = await db.user.findMany({
+    orderBy: { balance: 'asc' },
+    select: { discordId: true },
+  });
+  const lowerTierCount = Math.floor(users.length * LOWER_TIER_RATIO);
+  return users.slice(0, lowerTierCount).map((user) => user.discordId);
+}
+
+export interface CouponIssuanceResult {
+  issuedUserIds: string[];
+  skippedUserIds: string[];
+}
+
+// 주어진 유저 목록에 베팅2배쿠폰을 발급한다 - 이미 미사용+미만료 쿠폰을
+// MAX_VALID_COUPONS_PER_USER장 이상 보유 중이면 조용히 스킵한다(에러 없음).
+export async function issueCouponsForUsers(
+  db: Db,
+  userIds: string[],
+  now: Date
+): Promise<CouponIssuanceResult> {
+  const expiresAt = new Date(now.getTime() + COUPON_VALIDITY_MS);
+  const issuedUserIds: string[] = [];
+  const skippedUserIds: string[] = [];
+
+  for (const userId of userIds) {
+    const validCouponCount = await db.bettingDoubleCoupon.count({
+      where: { userId, usedAt: null, expiresAt: { gt: now } },
+    });
+
+    if (validCouponCount >= MAX_VALID_COUPONS_PER_USER) {
+      skippedUserIds.push(userId);
+      continue;
+    }
+
+    await db.bettingDoubleCoupon.create({
+      data: { userId, issuedAt: now, expiresAt },
+    });
+    issuedUserIds.push(userId);
+  }
+
+  return { issuedUserIds, skippedUserIds };
 }
 
 export async function distributionBatch(now: Date = new Date()): Promise<DistributionBatchResult> {
@@ -30,9 +78,9 @@ export async function distributionBatch(now: Date = new Date()): Promise<Distrib
       orderBy: { balance: 'asc' },
       select: { discordId: true, balance: true },
     });
-    const lowerTierCount = Math.floor(users.length * LOWER_TIER_RATIO);
-    const lowerTierUsers = users.slice(0, lowerTierCount);
-    const lowerTierIds = new Set(lowerTierUsers.map((user) => user.discordId));
+    const lowerTierUserIds = await getLowerTierUserIds(tx);
+    const lowerTierCount = lowerTierUserIds.length;
+    const lowerTierIds = new Set(lowerTierUserIds);
 
     const perUserAmounts = new Map<string, number>();
 
@@ -80,34 +128,14 @@ export async function distributionBatch(now: Date = new Date()): Promise<Distrib
       });
     }
 
-    // 베팅2배쿠폰: 유저가 이미 미사용+미만료 쿠폰을 MAX_VALID_COUPONS_PER_USER장 이상 보유하고
-    // 있으면 이번 발급 대상에서 조용히 제외한다(에러 없음).
-    const expiresAt = new Date(now.getTime() + COUPON_VALIDITY_MS);
-    let couponsIssued = 0;
-    let couponsSkipped = 0;
-
-    for (const user of lowerTierUsers) {
-      const validCouponCount = await tx.bettingDoubleCoupon.count({
-        where: { userId: user.discordId, usedAt: null, expiresAt: { gt: now } },
-      });
-
-      if (validCouponCount >= MAX_VALID_COUPONS_PER_USER) {
-        couponsSkipped += 1;
-        continue;
-      }
-
-      await tx.bettingDoubleCoupon.create({
-        data: { userId: user.discordId, issuedAt: now, expiresAt },
-      });
-      couponsIssued += 1;
-    }
+    const { issuedUserIds, skippedUserIds } = await issueCouponsForUsers(tx, lowerTierUserIds, now);
 
     return {
       distributed,
       fundAmount,
-      lowerTierCount: lowerTierUsers.length,
-      couponsIssued,
-      couponsSkipped,
+      lowerTierCount,
+      couponsIssued: issuedUserIds.length,
+      couponsSkipped: skippedUserIds.length,
       perUserAmounts,
     };
   });
