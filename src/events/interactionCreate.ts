@@ -10,6 +10,7 @@ import {
 } from './mode2BetInteraction';
 import { handleRpsActionButton, isRpsActionButton } from './rpsButton';
 import { handleSettlementCancelButton, isSettlementCancelButton } from './settlementCancelButton';
+import { handlePlayGrantButton, isPlayGrantButton } from './minigamePlayGrantButton';
 import {
   handleUnifiedBetAmountModal,
   handleUnifiedBetChooseButton,
@@ -71,6 +72,15 @@ export async function handleInteractionCreate(interaction: Interaction) {
       await handleSettlementCancelButton(interaction);
     } catch (error) {
       await replyWithGenericError(interaction, '정산취소 버튼 처리 중 오류 발생', error);
+    }
+    return;
+  }
+
+  if (interaction.isButton() && isPlayGrantButton(interaction.customId)) {
+    try {
+      await handlePlayGrantButton(interaction);
+    } catch (error) {
+      await replyWithGenericError(interaction, '횟수지급 버튼 처리 중 오류 발생', error);
     }
     return;
   }
