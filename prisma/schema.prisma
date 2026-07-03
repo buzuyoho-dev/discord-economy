@@ -25,6 +25,10 @@ enum TransactionType {
   LOTTERY_WIN
   LOTTERY_TAX
   SETTLEMENT_CORRECTION
+  BLACKJACK_BET
+  BLACKJACK_WIN
+  BLACKJACK_LOSE
+  BLACKJACK_PUSH
 }
 
 model User {
@@ -220,4 +224,16 @@ model LotteryStatusMessage {
   roundNumber      Int
   channelMessageId String
   createdAt        DateTime @default(now())
+}
+
+// 💡 미니게임(블랙잭, 추후 다른 미니게임)의 "하루 몇 번 했는지" 횟수만 기록하는 테이블.
+// gameType별로 카운트가 완전히 분리되어서, 블랙잭을 5번 다 써도 다른 미니게임엔 영향 없음.
+model MinigamePlayLog {
+  id       String   @id @default(cuid())
+  userId   String
+  gameType String // "BLACKJACK", 추후 "RPS" 등 추가 예정
+  count    Int      @default(0)
+  playDate DateTime // KST 자정 기준 날짜값 (kstMidnightUtc로 계산)
+
+  @@unique([userId, gameType, playDate])
 }

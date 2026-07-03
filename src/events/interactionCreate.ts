@@ -1,5 +1,6 @@
 import { type Interaction, MessageFlags } from 'discord.js';
 import { commands } from '../commands';
+import { handleBlackjackActionButton, isBlackjackActionButton } from './blackjackButton';
 import { handleMode1BetJoinButton, isMode1BetJoinButton } from './mode1BetButton';
 import {
   handleMode2BetAmountModal,
@@ -96,6 +97,15 @@ export async function handleInteractionCreate(interaction: Interaction) {
       await handleUnifiedBetAmountModal(interaction);
     } catch (error) {
       await replyWithGenericError(interaction, '베팅 금액 입력 처리 중 오류 발생', error);
+    }
+    return;
+  }
+
+  if (interaction.isButton() && isBlackjackActionButton(interaction.customId)) {
+    try {
+      await handleBlackjackActionButton(interaction);
+    } catch (error) {
+      await replyWithGenericError(interaction, '블랙잭 히트/스탠드 처리 중 오류 발생', error);
     }
     return;
   }

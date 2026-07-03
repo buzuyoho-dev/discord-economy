@@ -6,6 +6,7 @@ import type {
 } from 'discord.js';
 import * as adminGrant from './adminGrant';
 import * as balance from './balance';
+import * as blackjack from './blackjack';
 import * as checkin from './checkin';
 import * as couponList from './couponList';
 import * as economyConfigSet from './economyConfigSet';
@@ -33,6 +34,7 @@ export interface Command {
 export const commands = new Map<string, Command>([
   [adminGrant.data.name, adminGrant],
   [balance.data.name, balance],
+  [blackjack.data.name, blackjack],
   [checkin.data.name, checkin],
   [gamble.data.name, gamble],
   [gambleExtraPurchase.data.name, gambleExtraPurchase],
