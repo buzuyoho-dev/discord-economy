@@ -9,7 +9,7 @@ export const MAX_LOAN_AMOUNT = 30_000_000;
 export const DEFAULT_DUE_DAYS = 7;
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-const LOAN_ORIGINATION_FEE_RATE = 0.02;
+export const LOAN_ORIGINATION_FEE_RATE = 0.02;
 const DAILY_INTEREST_RATE = 0.05;
 const MAX_INTEREST_DAYS = 10;
 
