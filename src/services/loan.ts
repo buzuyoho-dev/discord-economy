@@ -1,6 +1,7 @@
 import { TransactionType } from '@prisma/client';
 import { prisma } from '../db/client';
 import { CreditBannedError, isCreditBanned } from './creditBan';
+import { assertNotBotTarget } from './discordTargetGuard';
 import { applyHouseTransaction } from './house';
 import { applyTransaction, getOrCreateUser } from './ledger';
 
@@ -35,6 +36,7 @@ export function calculateInterest(principal: number, overdueDays: number): numbe
 export async function createLoan(params: {
   lenderId: string;
   borrowerId: string;
+  borrowerIsBot?: boolean;
   principal: number;
   dueAt?: Date;
   now?: Date;
@@ -50,6 +52,8 @@ export async function createLoan(params: {
   if (params.lenderId === params.borrowerId) {
     throw new CannotLoanToSelfError(`${params.lenderId} cannot loan to self`);
   }
+  // 💡 봇 계정에게는 대출해줄 수 없다 - getOrCreateUser를 부르기 전에 먼저 걸러낸다.
+  assertNotBotTarget(params.borrowerIsBot, params.borrowerId);
 
   const now = params.now ?? new Date();
   if (params.dueAt && params.dueAt.getTime() <= now.getTime()) {

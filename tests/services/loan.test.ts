@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { prisma } from '../../src/db/client';
 import { CreditBannedError } from '../../src/services/creditBan';
+import { BotTargetError } from '../../src/services/discordTargetGuard';
 import { getOrCreateHouse, HOUSE_ID } from '../../src/services/house';
 import { getOrCreateUser, InsufficientBalanceError } from '../../src/services/ledger';
 import {
@@ -106,6 +107,25 @@ describe('createLoan', () => {
     await expect(
       createLoan({ lenderId: 'lender-4', borrowerId: 'lender-4', principal: 1_000 })
     ).rejects.toThrow(CannotLoanToSelfError);
+  });
+
+  test('빌릴 사람이 봇이면 거부되고 아무도 차감/생성되지 않는다', async () => {
+    await getOrCreateUser('lender-bot-1');
+
+    await expect(
+      createLoan({
+        lenderId: 'lender-bot-1',
+        borrowerId: 'bot-1',
+        borrowerIsBot: true,
+        principal: 1_000_000,
+      })
+    ).rejects.toThrow(BotTargetError);
+
+    const lender = await prisma.user.findUniqueOrThrow({ where: { discordId: 'lender-bot-1' } });
+    expect(lender.balance).toBe(10_000_000); // 차감 없음
+
+    const botUser = await prisma.user.findUnique({ where: { discordId: 'bot-1' } });
+    expect(botUser).toBeNull();
   });
 
   test.each([NaN, -5, 0, 1.5, Infinity])('금액이 %s이면 거부된다', async (principal) => {

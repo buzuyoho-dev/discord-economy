@@ -21,8 +21,11 @@ export interface DistributionBatchResult {
 
 // 순위(잔액) 기준 하위 30% 유저 discordId 목록. distributionBatch()와 1회성 긴급 발급 스크립트
 // 양쪽에서 동일한 "하위 플레이어" 판정을 재사용한다.
-export async function getLowerTierUserIds(db: Db): Promise<string[]> {
+// 💡 excludeUserId를 넘기면(봇 자신의 ID 등) 그 유저는 인원수 계산과 대상 목록 양쪽에서
+// 완전히 빠진다 - 봇 명의 User row가 어떤 이유로든 남아있어도 환급/쿠폰 대상이 되지 않는다.
+export async function getLowerTierUserIds(db: Db, options?: { excludeUserId?: string }): Promise<string[]> {
   const users = await db.user.findMany({
+    where: options?.excludeUserId ? { discordId: { not: options.excludeUserId } } : undefined,
     orderBy: { balance: 'asc' },
     select: { discordId: true },
   });
@@ -65,7 +68,10 @@ export async function issueCouponsForUsers(
   return { issuedUserIds, skippedUserIds };
 }
 
-export async function distributionBatch(now: Date = new Date()): Promise<DistributionBatchResult> {
+export async function distributionBatch(
+  now: Date = new Date(),
+  options?: { excludeUserId?: string }
+): Promise<DistributionBatchResult> {
   return prisma.$transaction(async (tx) => {
     const config = await getOrCreateEconomyConfig(tx);
     const house = await getOrCreateHouse(tx);
@@ -75,10 +81,11 @@ export async function distributionBatch(now: Date = new Date()): Promise<Distrib
     const fundAmount = Math.floor(netGain * config.rebateRate);
 
     const users = await tx.user.findMany({
+      where: options?.excludeUserId ? { discordId: { not: options.excludeUserId } } : undefined,
       orderBy: { balance: 'asc' },
       select: { discordId: true, balance: true },
     });
-    const lowerTierUserIds = await getLowerTierUserIds(tx);
+    const lowerTierUserIds = await getLowerTierUserIds(tx, options);
     const lowerTierCount = lowerTierUserIds.length;
     const lowerTierIds = new Set(lowerTierUserIds);
 

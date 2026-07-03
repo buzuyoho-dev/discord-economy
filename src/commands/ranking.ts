@@ -6,7 +6,7 @@ export const data = new SlashCommandBuilder()
   .setDescription('보유 포인트 기준 실시간 순위를 확인합니다.');
 
 export async function execute(interaction: ChatInputCommandInteraction) {
-  const rankings = await getRankings();
+  const rankings = await getRankings({ excludeUserId: interaction.client.user.id });
 
   if (rankings.length === 0) {
     await interaction.reply('아직 등록된 유저가 없습니다.');

@@ -18,6 +18,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     const result = await transferPoints({
       senderId: interaction.user.id,
       recipientId: recipient.id,
+      recipientIsBot: recipient.bot,
       amount,
     });
 

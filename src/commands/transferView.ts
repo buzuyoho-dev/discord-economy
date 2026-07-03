@@ -1,4 +1,5 @@
 import { CreditBannedError } from '../services/creditBan';
+import { BotTargetError } from '../services/discordTargetGuard';
 import { InsufficientBalanceError } from '../services/ledger';
 import {
   AlreadyTransferredTodayError,
@@ -16,6 +17,9 @@ export function transferErrorMessage(error: unknown): string | null {
   }
   if (error instanceof CannotTransferToSelfError) {
     return '본인에게는 양도할 수 없습니다.';
+  }
+  if (error instanceof BotTargetError) {
+    return '봇에게는 양도할 수 없습니다.';
   }
   if (error instanceof AlreadyTransferredTodayError) {
     return '오늘은 이미 양도를 했습니다. 내일 다시 시도해주세요.';

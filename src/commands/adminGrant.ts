@@ -8,6 +8,7 @@ import { env } from '../config/env';
 import { logBetEvent } from '../discord/betLog';
 import { formatAdminGrant } from '../discord/betLogMessages';
 import { grantPoints, InvalidGrantAmountError, NotAdminError } from '../services/adminGrant';
+import { BotTargetError } from '../services/discordTargetGuard';
 
 export const data = new SlashCommandBuilder()
   .setName('포인트지급')
@@ -29,6 +30,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       requestedBy: interaction.user.id,
       adminDiscordId: env.ADMIN_DISCORD_ID,
       targetId: target.id,
+      targetIsBot: target.bot,
       amount,
       reason,
     });
@@ -45,6 +47,10 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
     if (error instanceof InvalidGrantAmountError) {
       await interaction.reply({ content: '금액은 1 이상의 정수여야 합니다.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (error instanceof BotTargetError) {
+      await interaction.reply({ content: '봇에게는 지급할 수 없습니다.', flags: MessageFlags.Ephemeral });
       return;
     }
     throw error;

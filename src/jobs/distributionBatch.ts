@@ -14,7 +14,8 @@ export async function scheduleDistributionBatch(client: Client) {
 
 export async function runDistributionBatch(client: Client) {
   try {
-    const result = await distributionBatch();
+    // 💡 봇 자신은 절대 환급/쿠폰 대상이 되면 안 되므로, 봇의 Discord ID를 명시적으로 제외한다.
+    const result = await distributionBatch(new Date(), { excludeUserId: client.user?.id });
     await announceDistribution(client, result);
   } catch (error) {
     console.error('환급/쿠폰 배치 처리 중 오류 발생', error);

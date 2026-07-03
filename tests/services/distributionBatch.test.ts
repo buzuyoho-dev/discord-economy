@@ -59,6 +59,33 @@ describe('distributionBatch - 정상 케이스', () => {
   });
 });
 
+describe('distributionBatch - 봇 계정 제외', () => {
+  test('excludeUserId로 지정한 유저(예: 봇 자신)는 User row가 있어도 환급/쿠폰 대상에서 완전히 빠진다', async () => {
+    await createUsers('nobot', 9, (i) => i * 1_000_000);
+    // 봇 계정이 User row로 실수로 남아있는 상황을 재현 - 잔액이 가장 낮아서
+    // 필터링이 없다면 하위 30%(쿠폰 대상)에 반드시 포함될 위치에 둔다.
+    await prisma.user.create({ data: { discordId: 'bot-account', balance: 1 } });
+    await setHouse(10_000_000, 0);
+
+    const result = await distributionBatch(new Date('2026-07-05T00:00:00.000Z'), {
+      excludeUserId: 'bot-account',
+    });
+
+    // 총 인원 계산에서 봇이 빠져야 하므로 9명 기준 하위 30% = floor(9*0.3) = 2명
+    expect(result.lowerTierCount).toBe(2);
+    expect(result.perUserAmounts.has('bot-account')).toBe(false);
+
+    const botUser = await prisma.user.findUniqueOrThrow({ where: { discordId: 'bot-account' } });
+    expect(botUser.balance).toBe(1); // 변동 없음
+
+    const botCoupons = await prisma.bettingDoubleCoupon.findMany({ where: { userId: 'bot-account' } });
+    expect(botCoupons).toHaveLength(0);
+
+    const botTxs = await prisma.transaction.findMany({ where: { userId: 'bot-account' } });
+    expect(botTxs).toHaveLength(0);
+  });
+});
+
 describe('distributionBatch - 재원이 0 이하', () => {
   test('분배는 스킵하지만 lastRebateBalance/lastRebateAt은 현재 값으로 갱신된다', async () => {
     await createUsers('s', 5, () => 1_000_000);

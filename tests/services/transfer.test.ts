@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { prisma } from '../../src/db/client';
 import { CreditBannedError } from '../../src/services/creditBan';
+import { BotTargetError } from '../../src/services/discordTargetGuard';
 import { getOrCreateHouse, HOUSE_ID } from '../../src/services/house';
 import { getOrCreateUser } from '../../src/services/ledger';
 import { createLoan } from '../../src/services/loan';
@@ -85,6 +86,25 @@ describe('transferPoints', () => {
     await expect(
       transferPoints({ senderId: 'sender-5', recipientId: 'sender-5', amount: 1_000 })
     ).rejects.toThrow(CannotTransferToSelfError);
+  });
+
+  test('받는 사람이 봇이면 거부되고 잔액이 변하지 않는다', async () => {
+    await getOrCreateUser('sender-bot-1');
+
+    await expect(
+      transferPoints({
+        senderId: 'sender-bot-1',
+        recipientId: 'bot-1',
+        recipientIsBot: true,
+        amount: 1_000_000,
+      })
+    ).rejects.toThrow(BotTargetError);
+
+    const sender = await prisma.user.findUniqueOrThrow({ where: { discordId: 'sender-bot-1' } });
+    expect(sender.balance).toBe(10_000_000); // 차감 없음
+
+    const botUser = await prisma.user.findUnique({ where: { discordId: 'bot-1' } });
+    expect(botUser).toBeNull(); // 봇 계정으로 User row가 생성되지 않는다
   });
 
   test.each([NaN, -5, 0, 1.5, Infinity, -Infinity])('금액이 %s이면 거부된다', async (amount) => {

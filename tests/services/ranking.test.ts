@@ -77,6 +77,19 @@ describe('getRankings', () => {
     expect(rankings).toHaveLength(1);
   });
 
+  test('excludeUserId를 지정하면 User row가 실제로 있어도(예: 봇 계정) 순위 집계에서 제외된다', async () => {
+    await getOrCreateUser('rank-real-user');
+    await getOrCreateUser('rank-bot-user');
+    await prisma.user.update({ where: { discordId: 'rank-bot-user' }, data: { balance: 999_999_999 } });
+
+    const rankings = await getRankings({ excludeUserId: 'rank-bot-user' });
+
+    expect(rankings.some((r) => r.discordId === 'rank-bot-user')).toBe(false);
+    expect(rankings).toHaveLength(1);
+    expect(rankings[0].discordId).toBe('rank-real-user');
+    expect(rankings[0].rank).toBe(1); // 봇이 빠졌으니 유일한 유저가 1위
+  });
+
   test('대출 채권/채무는 별도로 보정되지 않고, balance 컬럼에 이미 반영된 값 그대로 순위에 쓰인다', async () => {
     await getOrCreateUser('rank-lender');
     await getOrCreateUser('rank-borrower');

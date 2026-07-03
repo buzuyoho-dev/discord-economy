@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { prisma } from '../../src/db/client';
+import { BotTargetError } from '../../src/services/discordTargetGuard';
 import { getOrCreateHouse, HOUSE_ID } from '../../src/services/house';
 import { getOrCreateUser } from '../../src/services/ledger';
 import { grantPoints, InvalidGrantAmountError, NotAdminError } from '../../src/services/adminGrant';
@@ -42,6 +43,24 @@ describe('grantPoints - 권한', () => {
 
     const target = await prisma.user.findUniqueOrThrow({ where: { discordId: 'target-2' } });
     expect(target.balance).toBe(10_000_000);
+  });
+});
+
+describe('grantPoints - 봇 대상 차단', () => {
+  test('대상이 봇이면 거부되고 User row 자체가 생성되지 않는다', async () => {
+    await expect(
+      grantPoints({
+        requestedBy: ADMIN_ID,
+        adminDiscordId: ADMIN_ID,
+        targetId: 'bot-1',
+        targetIsBot: true,
+        amount: 1_000_000,
+        reason: '테스트',
+      })
+    ).rejects.toThrow(BotTargetError);
+
+    const botUser = await prisma.user.findUnique({ where: { discordId: 'bot-1' } });
+    expect(botUser).toBeNull();
   });
 });
 

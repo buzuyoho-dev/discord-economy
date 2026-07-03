@@ -1,4 +1,5 @@
 import { CreditBannedError } from '../services/creditBan';
+import { BotTargetError } from '../services/discordTargetGuard';
 import { InsufficientBalanceError } from '../services/ledger';
 import {
   CannotLoanToSelfError,
@@ -19,6 +20,9 @@ export function loanErrorMessage(error: unknown): string | null {
   }
   if (error instanceof CannotLoanToSelfError) {
     return '본인에게는 대출을 개설할 수 없습니다.';
+  }
+  if (error instanceof BotTargetError) {
+    return '봇에게는 대출을 개설할 수 없습니다.';
   }
   if (error instanceof InvalidDueDateError) {
     return '상환일은 현재 시점보다 미래여야 합니다.';

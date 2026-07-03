@@ -29,6 +29,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     const loan = await createLoan({
       lenderId: interaction.user.id,
       borrowerId: borrower.id,
+      borrowerIsBot: borrower.bot,
       principal,
       dueAt,
       now,

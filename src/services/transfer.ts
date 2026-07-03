@@ -1,6 +1,7 @@
 import { TransactionType } from '@prisma/client';
 import { prisma } from '../db/client';
 import { CreditBannedError, isCreditBanned } from './creditBan';
+import { assertNotBotTarget } from './discordTargetGuard';
 import { applyHouseTransaction } from './house';
 import { isSameKstDay } from './kst';
 import { applyTransaction, getOrCreateUser } from './ledger';
@@ -16,6 +17,7 @@ export class AlreadyTransferredTodayError extends Error {}
 export async function transferPoints(params: {
   senderId: string;
   recipientId: string;
+  recipientIsBot?: boolean;
   amount: number;
   now?: Date;
 }) {
@@ -30,6 +32,9 @@ export async function transferPoints(params: {
   if (params.senderId === params.recipientId) {
     throw new CannotTransferToSelfError(`${params.senderId} cannot transfer to self`);
   }
+  // 💡 봇 계정에게는 양도할 수 없다 - getOrCreateUser를 부르기 전에 먼저 걸러내서,
+  // 봇 명의의 User row가 아예 생기지 않도록 한다.
+  assertNotBotTarget(params.recipientIsBot, params.recipientId);
 
   const now = params.now ?? new Date();
 
