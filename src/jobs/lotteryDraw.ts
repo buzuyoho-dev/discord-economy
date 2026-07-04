@@ -1,7 +1,11 @@
-import type { Client } from 'discord.js';
+import { DiscordAPIError, type Client } from 'discord.js';
 import { env } from '../config/env';
 import { kstMidnightUtc } from '../services/kst';
 import { runLotteryDraw } from '../services/lotteryDraw';
+
+// Discord API 오류 코드: https://discord.com/developers/docs/topics/opcodes-and-status-codes#json
+const MISSING_ACCESS = 50001;
+const MISSING_PERMISSIONS = 50013;
 
 const LOTTERY_DRAW_CRON_EXPRESSION = '0 12 * * *'; // 매일 낮 12시
 const TIMEZONE = 'Asia/Seoul';
@@ -22,6 +26,18 @@ export async function runDailyLotteryDraw(client: Client) {
     const result = await runLotteryDraw({ drawDate });
     await announceLotteryResult(client, result);
   } catch (error) {
+    // DiscordAPIError는 announceLotteryResult()의 channel.send()에서만 발생할 수 있다
+    // (runLotteryDraw는 순수 DB 트랜잭션이라 Discord API를 호출하지 않는다).
+    // 즉 이 분기에 걸렸다는 건 추첨/정산 자체는 이미 정상적으로 끝났고, 결과 공지 메시지만
+    // 못 보낸 것이다 - 콘솔에만 남기고 지나가면 "추첨이 아예 안 됐다"고 오해하기 쉬우므로
+    // 원인(권한 문제 등)을 명확히 짚어준다.
+    if (error instanceof DiscordAPIError && (error.code === MISSING_PERMISSIONS || error.code === MISSING_ACCESS)) {
+      console.error(
+        `[복권 추첨] 당첨자 산정/정산은 정상적으로 완료되었지만, 결과 공지 메시지 전송에 실패했습니다. ` +
+          `봇에게 채널(${env.LOTTERY_CHANNEL_ID})의 "메시지 보내기" 권한이 있는지 확인해주세요. (Discord error code ${error.code})`
+      );
+      return;
+    }
     console.error('복권 추첨 처리 중 오류 발생', error);
   }
 }
