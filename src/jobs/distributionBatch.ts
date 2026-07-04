@@ -1,6 +1,10 @@
-import type { Client } from 'discord.js';
+import { DiscordAPIError, type Client } from 'discord.js';
 import { env } from '../config/env';
 import { distributionBatch, type DistributionBatchResult } from '../services/distributionBatch';
+
+// Discord API 오류 코드: https://discord.com/developers/docs/topics/opcodes-and-status-codes#json
+const MISSING_ACCESS = 50001;
+const MISSING_PERMISSIONS = 50013;
 
 const DISTRIBUTION_BATCH_CRON_EXPRESSION = '0 0 * * 1,3,5'; // 매주 월/수/금 자정
 const TIMEZONE = 'Asia/Seoul';
@@ -18,6 +22,17 @@ export async function runDistributionBatch(client: Client) {
     const result = await distributionBatch(new Date(), { excludeUserId: client.user?.id });
     await announceDistribution(client, result);
   } catch (error) {
+    // DiscordAPIError는 announceDistribution()의 channel.send()에서만 발생할 수 있다
+    // (distributionBatch는 순수 DB 트랜잭션이라 Discord API를 호출하지 않는다).
+    // 즉 이 분기에 걸렸다는 건 환급/쿠폰 지급 자체는 이미 정상적으로 끝났고, 공지
+    // 메시지만 못 보낸 것이다 - 원인(권한 문제 등)을 명확히 짚어준다.
+    if (error instanceof DiscordAPIError && (error.code === MISSING_PERMISSIONS || error.code === MISSING_ACCESS)) {
+      console.error(
+        `[환급/쿠폰 배치] 지급 처리는 정상적으로 완료되었지만, 공지 메시지 전송에 실패했습니다. ` +
+          `봇에게 채널(${env.REBATE_ANNOUNCEMENT_CHANNEL_ID})의 "메시지 보내기" 권한이 있는지 확인해주세요. (Discord error code ${error.code})`
+      );
+      return;
+    }
     console.error('환급/쿠폰 배치 처리 중 오류 발생', error);
   }
 }
