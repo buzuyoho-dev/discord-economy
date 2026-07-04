@@ -101,7 +101,7 @@ describe('getRankings', () => {
       borrowerId: 'rank-borrower',
       principal: 9_000_000,
     });
-    await acceptLoan({ loanId: requested.id, acceptedBy: 'rank-borrower' });
+    await acceptLoan({ loanId: requested.id, acceptedBy: 'rank-lender' });
 
     const rankings = await getRankings();
     const lender = rankings.find((r) => r.discordId === 'rank-lender');

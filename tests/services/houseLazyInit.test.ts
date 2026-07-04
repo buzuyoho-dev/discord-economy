@@ -163,7 +163,7 @@ describe('House row 없이 처음 실행 - 대출', () => {
       borrowerId: 'fresh-borrower',
       principal: 1_000_000,
     });
-    await acceptLoan({ loanId: requested.id, acceptedBy: 'fresh-borrower' });
+    await acceptLoan({ loanId: requested.id, acceptedBy: 'fresh-lender' });
 
     const house = await prisma.house.findUniqueOrThrow({ where: { id: HOUSE_ID } });
     expect(house.balance).toBe(20_000); // 2% 개설 수수료

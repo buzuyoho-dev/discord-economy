@@ -20,10 +20,10 @@ export function loanErrorMessage(error: unknown): string | null {
     return '1회 대출 한도(3,000만 포인트)를 초과합니다.';
   }
   if (error instanceof CannotLoanToSelfError) {
-    return '본인에게는 대출을 개설할 수 없습니다.';
+    return '본인에게는 대출을 요청할 수 없습니다.';
   }
   if (error instanceof BotTargetError) {
-    return '봇에게는 대출을 개설할 수 없습니다.';
+    return '봇에게는 대출을 요청할 수 없습니다.';
   }
   if (error instanceof InvalidDueDateError) {
     return '상환일은 현재 시점보다 미래여야 합니다.';
@@ -32,7 +32,7 @@ export function loanErrorMessage(error: unknown): string | null {
     return '상환일수는 1 이상의 정수여야 합니다.';
   }
   if (error instanceof CreditBannedError) {
-    return '신용불량 상태라 신규 대출을 개설할 수 없습니다.';
+    return '신용불량 상태라 신규 대출을 요청할 수 없습니다.';
   }
   if (error instanceof LoanNotFoundError) {
     return '해당 대출을 찾을 수 없습니다.';
@@ -128,8 +128,10 @@ export function formatMyLoans(params: {
   asBorrower: MyLoansViewLoan[];
   showAll: boolean;
 }): string {
-  const sentRequests = params.asLender.filter((l) => l.status === 'PENDING');
-  const receivedRequests = params.asBorrower.filter((l) => l.status === 'PENDING');
+  // 이제 borrower(요청자)가 /대출요청을 실행하고 lender가 수락/거절하므로, "내가 보낸 요청"은
+  // 내가 borrower로서 아직 lender 미응답인 것, "내가 받은 요청"은 내가 lender로서 승인해야 할 것이다.
+  const sentRequests = params.asBorrower.filter((l) => l.status === 'PENDING');
+  const receivedRequests = params.asLender.filter((l) => l.status === 'PENDING');
 
   const sections: string[] = [];
 
@@ -138,7 +140,7 @@ export function formatMyLoans(params: {
       '📤 **내가 보낸 요청 (응답 대기중)**',
       sentRequests.length === 0
         ? '없음'
-        : sentRequests.map((l) => formatLoanEntry(l, '차입자', l.borrowerId, false)).join('\n'),
+        : sentRequests.map((l) => formatLoanEntry(l, '대출자', l.lenderId, false)).join('\n'),
     ].join('\n')
   );
 
@@ -147,7 +149,7 @@ export function formatMyLoans(params: {
       '📥 **내가 받은 요청 (응답 대기중)**',
       receivedRequests.length === 0
         ? '없음'
-        : receivedRequests.map((l) => formatLoanEntry(l, '대출자', l.lenderId, false)).join('\n'),
+        : receivedRequests.map((l) => formatLoanEntry(l, '차입자', l.borrowerId, false)).join('\n'),
     ].join('\n')
   );
 

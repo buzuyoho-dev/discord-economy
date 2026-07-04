@@ -15,9 +15,9 @@ import * as gamble from './gamble';
 import * as gambleExtraPurchase from './gambleExtraPurchase';
 import * as house from './house';
 import * as lotteryBuy from './lotteryBuy';
-import * as loanCreate from './loanCreate';
 import * as loanMyLoans from './loanMyLoans';
 import * as loanRepay from './loanRepay';
+import * as loanRequest from './loanRequest';
 import * as mode1BetClose from './mode1BetClose';
 import * as mode1BetCreate from './mode1BetCreate';
 import * as mode1BetSettle from './mode1BetSettle';
@@ -51,7 +51,7 @@ export const commands = new Map<string, Command>([
   [mode2BetSettle.data.name, mode2BetSettle],
   [rps.data.name, rps],
   [transfer.data.name, transfer],
-  [loanCreate.data.name, loanCreate],
+  [loanRequest.data.name, loanRequest],
   [loanRepay.data.name, loanRepay],
   [loanMyLoans.data.name, loanMyLoans],
   [ranking.data.name, ranking],

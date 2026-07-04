@@ -20,7 +20,7 @@ async function createActiveLoanFixture(params: {
     principal: params.principal,
     now: params.now,
   });
-  return acceptLoan({ loanId: requested.id, acceptedBy: params.borrowerId, now: params.now });
+  return acceptLoan({ loanId: requested.id, acceptedBy: params.lenderId, now: params.now });
 }
 
 describe('isCreditBanned', () => {

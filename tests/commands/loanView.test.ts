@@ -22,11 +22,11 @@ describe('formatMyLoans', () => {
     expect(text).toContain('없음');
   });
 
-  test('PENDING인 lender 항목은 보낸 요청 섹션에, PENDING인 borrower 항목은 받은 요청 섹션에 표시된다', () => {
-    const sent = makeLoan({ id: 1, status: 'PENDING', borrowerId: 'someone-b', dueAt: null });
-    const received = makeLoan({ id: 2, status: 'PENDING', lenderId: 'someone-l', dueAt: null });
+  test('PENDING인 borrower 항목(내가 요청을 보낸 것)은 보낸 요청 섹션에, PENDING인 lender 항목(내가 요청을 받은 것)은 받은 요청 섹션에 표시된다', () => {
+    const sent = makeLoan({ id: 1, status: 'PENDING', lenderId: 'someone-l', dueAt: null });
+    const received = makeLoan({ id: 2, status: 'PENDING', borrowerId: 'someone-b', dueAt: null });
 
-    const text = formatMyLoans({ asLender: [sent], asBorrower: [received], showAll: false });
+    const text = formatMyLoans({ asBorrower: [sent], asLender: [received], showAll: false });
 
     const sentIdx = text.indexOf('내가 보낸 요청');
     const receivedIdx = text.indexOf('내가 받은 요청');

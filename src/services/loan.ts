@@ -19,6 +19,7 @@ export class CannotLoanToSelfError extends Error {}
 export class LoanNotFoundError extends Error {}
 export class LoanNotActiveError extends Error {}
 export class NotBorrowerError extends Error {}
+export class NotLenderError extends Error {}
 export class InvalidDueDateError extends Error {}
 export class InvalidDueDaysError extends Error {}
 export class LoanNotPendingError extends Error {}
@@ -38,12 +39,12 @@ export function calculateInterest(principal: number, overdueDays: number): numbe
   return Math.floor(principal * DAILY_INTEREST_RATE * overdueDays);
 }
 
-// 즉시 이체 없이 PENDING 상태 요청만 생성한다. 실제 포인트 이동은 borrower가
+// 즉시 이체 없이 PENDING 상태 요청만 생성한다. 실제 포인트 이동은 lender가
 // 수락할 때(acceptLoan) 일어난다.
 export async function requestLoan(params: {
   lenderId: string;
   borrowerId: string;
-  borrowerIsBot?: boolean;
+  lenderIsBot?: boolean;
   principal: number;
   dueDays?: number;
   now?: Date;
@@ -59,8 +60,8 @@ export async function requestLoan(params: {
   if (params.lenderId === params.borrowerId) {
     throw new CannotLoanToSelfError(`${params.lenderId} cannot loan to self`);
   }
-  // 💡 봇 계정에게는 대출 요청을 보낼 수 없다.
-  assertNotBotTarget(params.borrowerIsBot, params.borrowerId);
+  // 💡 봇 계정에게는 대출을 요청할 수 없다 (상대방 파라미터 = lender).
+  assertNotBotTarget(params.lenderIsBot, params.lenderId);
 
   const dueDays = params.dueDays ?? DEFAULT_DUE_DAYS;
   if (!Number.isInteger(dueDays) || dueDays <= 0) {
@@ -84,7 +85,7 @@ export async function requestLoan(params: {
   });
 }
 
-// borrower가 대출 요청을 수락했을 때 실제 이체를 실행한다 (예전 createLoan의 이체 로직을
+// lender가 대출 요청을 수락했을 때 실제 이체를 실행한다 (예전 createLoan의 이체 로직을
 // 그대로 옮겨온 것). 요청 시각(createdAt)으로부터 24시간이 지났으면 만료로 거부한다 -
 // isCreditBanned와 같은 방식으로 cron 없이 호출되는 순간 계산한다.
 export async function acceptLoan(params: { loanId: number; acceptedBy: string; now?: Date }) {
@@ -95,8 +96,8 @@ export async function acceptLoan(params: { loanId: number; acceptedBy: string; n
     if (!loan) {
       throw new LoanNotFoundError(`loan ${params.loanId} not found`);
     }
-    if (loan.borrowerId !== params.acceptedBy) {
-      throw new NotBorrowerError(`${params.acceptedBy} is not the borrower of loan ${params.loanId}`);
+    if (loan.lenderId !== params.acceptedBy) {
+      throw new NotLenderError(`${params.acceptedBy} is not the lender of loan ${params.loanId}`);
     }
     if (loan.status !== 'PENDING') {
       throw new LoanNotPendingError(`loan ${params.loanId} is not pending`);
@@ -155,8 +156,8 @@ export async function declineLoan(params: { loanId: number; declinedBy: string }
     if (!loan) {
       throw new LoanNotFoundError(`loan ${params.loanId} not found`);
     }
-    if (loan.borrowerId !== params.declinedBy) {
-      throw new NotBorrowerError(`${params.declinedBy} is not the borrower of loan ${params.loanId}`);
+    if (loan.lenderId !== params.declinedBy) {
+      throw new NotLenderError(`${params.declinedBy} is not the lender of loan ${params.loanId}`);
     }
     if (loan.status !== 'PENDING') {
       throw new LoanNotPendingError(`loan ${params.loanId} is not pending`);

@@ -202,7 +202,7 @@ describe('transferPoints', () => {
       principal: 1_000_000,
       now: requestedAt,
     });
-    const loan = await acceptLoan({ loanId: requested.id, acceptedBy: 'sender-cb-t1', now: requestedAt });
+    const loan = await acceptLoan({ loanId: requested.id, acceptedBy: 'lender-cb-t1', now: requestedAt });
 
     const elevenDaysLate = new Date(loan.dueAt!.getTime() + 11 * ONE_DAY_MS);
 

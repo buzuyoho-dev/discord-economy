@@ -21,6 +21,7 @@ import {
   LoanRequestExpiredError,
   MAX_LOAN_AMOUNT,
   NotBorrowerError,
+  NotLenderError,
   repayLoan,
   requestLoan,
 } from '../../src/services/loan';
@@ -43,7 +44,7 @@ async function createActiveLoanFixture(params: {
     dueDays: params.dueDays,
     now: params.now,
   });
-  return acceptLoan({ loanId: requested.id, acceptedBy: params.borrowerId, now: params.now });
+  return acceptLoan({ loanId: requested.id, acceptedBy: params.lenderId, now: params.now });
 }
 
 describe('calculateOverdueDays', () => {
@@ -180,14 +181,14 @@ describe('requestLoan', () => {
     ).rejects.toThrow(CannotLoanToSelfError);
   });
 
-  test('빌릴 사람이 봇이면 거부된다', async () => {
-    await getOrCreateUser('lender-req-5');
+  test('빌려줄 사람이 봇이면 거부된다', async () => {
+    await getOrCreateUser('borrower-req-5');
 
     await expect(
       requestLoan({
-        lenderId: 'lender-req-5',
-        borrowerId: 'bot-req-5',
-        borrowerIsBot: true,
+        lenderId: 'bot-req-5',
+        borrowerId: 'borrower-req-5',
+        lenderIsBot: true,
         principal: 1_000_000,
       })
     ).rejects.toThrow(BotTargetError);
@@ -253,7 +254,7 @@ describe('acceptLoan', () => {
     });
 
     const acceptedAt = new Date('2026-07-01T01:00:00.000Z'); // 요청 1시간 뒤에 수락 (24시간 만료 전)
-    const loan = await acceptLoan({ loanId: requested.id, acceptedBy: 'borrower-acc-1', now: acceptedAt });
+    const loan = await acceptLoan({ loanId: requested.id, acceptedBy: 'lender-acc-1', now: acceptedAt });
 
     expect(loan.status).toBe('ACTIVE');
     expect(loan.dueAt?.getTime()).toBe(acceptedAt.getTime() + 10 * ONE_DAY_MS); // 요청 시각이 아니라 수락 시각 기준
@@ -267,7 +268,7 @@ describe('acceptLoan', () => {
     expect(house.balance).toBe(20_000);
   });
 
-  test('borrower가 아닌 사람이 수락하면 거부되고 아무것도 바뀌지 않는다', async () => {
+  test('lender가 아닌 사람이 수락하면 거부되고 아무것도 바뀌지 않는다', async () => {
     await getOrCreateUser('lender-acc-2');
     await getOrCreateUser('borrower-acc-2');
     await getOrCreateHouse();
@@ -279,7 +280,7 @@ describe('acceptLoan', () => {
     });
 
     await expect(acceptLoan({ loanId: requested.id, acceptedBy: 'someone-else' })).rejects.toThrow(
-      NotBorrowerError
+      NotLenderError
     );
 
     const loanAfter = await prisma.loan.findUniqueOrThrow({ where: { id: requested.id } });
@@ -300,9 +301,9 @@ describe('acceptLoan', () => {
       borrowerId: 'borrower-acc-3',
       principal: 1_000_000,
     });
-    await acceptLoan({ loanId: requested.id, acceptedBy: 'borrower-acc-3' });
+    await acceptLoan({ loanId: requested.id, acceptedBy: 'lender-acc-3' });
 
-    await expect(acceptLoan({ loanId: requested.id, acceptedBy: 'borrower-acc-3' })).rejects.toThrow(
+    await expect(acceptLoan({ loanId: requested.id, acceptedBy: 'lender-acc-3' })).rejects.toThrow(
       LoanNotPendingError
     );
   });
@@ -323,7 +324,7 @@ describe('acceptLoan', () => {
     const justAfter24h = new Date(requestedAt.getTime() + 24 * 60 * 60 * 1000);
 
     await expect(
-      acceptLoan({ loanId: requested.id, acceptedBy: 'borrower-acc-4', now: justAfter24h })
+      acceptLoan({ loanId: requested.id, acceptedBy: 'lender-acc-4', now: justAfter24h })
     ).rejects.toThrow(LoanRequestExpiredError);
 
     const loanAfter = await prisma.loan.findUniqueOrThrow({ where: { id: requested.id } });
@@ -350,7 +351,7 @@ describe('acceptLoan', () => {
 
     const loan = await acceptLoan({
       loanId: requested.id,
-      acceptedBy: 'borrower-acc-5',
+      acceptedBy: 'lender-acc-5',
       now: justBefore24h,
     });
     expect(loan.status).toBe('ACTIVE');
@@ -368,8 +369,8 @@ describe('acceptLoan', () => {
     });
 
     const results = await Promise.allSettled([
-      acceptLoan({ loanId: requested.id, acceptedBy: 'borrower-acc-6' }),
-      acceptLoan({ loanId: requested.id, acceptedBy: 'borrower-acc-6' }),
+      acceptLoan({ loanId: requested.id, acceptedBy: 'lender-acc-6' }),
+      acceptLoan({ loanId: requested.id, acceptedBy: 'lender-acc-6' }),
     ]);
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
@@ -397,7 +398,7 @@ describe('acceptLoan', () => {
     // 요청 이후 lender가 다른 곳에 다 써버려서 잔액이 부족해진 상황을 시뮬레이션한다.
     await prisma.user.update({ where: { discordId: 'lender-acc-7' }, data: { balance: 500_000 } });
 
-    await expect(acceptLoan({ loanId: requested.id, acceptedBy: 'borrower-acc-7' })).rejects.toThrow(
+    await expect(acceptLoan({ loanId: requested.id, acceptedBy: 'lender-acc-7' })).rejects.toThrow(
       InsufficientBalanceError
     );
 
@@ -420,7 +421,7 @@ describe('declineLoan', () => {
       principal: 1_000_000,
     });
 
-    const loan = await declineLoan({ loanId: requested.id, declinedBy: 'borrower-dec-1' });
+    const loan = await declineLoan({ loanId: requested.id, declinedBy: 'lender-dec-1' });
     expect(loan.status).toBe('DECLINED');
 
     const lender = await prisma.user.findUniqueOrThrow({ where: { discordId: 'lender-dec-1' } });
@@ -429,7 +430,7 @@ describe('declineLoan', () => {
     expect(borrower.balance).toBe(10_000_000);
   });
 
-  test('borrower가 아닌 사람이 거절하면 거부된다', async () => {
+  test('lender가 아닌 사람이 거절하면 거부된다', async () => {
     await getOrCreateUser('lender-dec-2');
     await getOrCreateUser('borrower-dec-2');
 
@@ -440,7 +441,7 @@ describe('declineLoan', () => {
     });
 
     await expect(declineLoan({ loanId: requested.id, declinedBy: 'someone-else' })).rejects.toThrow(
-      NotBorrowerError
+      NotLenderError
     );
   });
 
@@ -459,9 +460,9 @@ describe('declineLoan', () => {
       borrowerId: 'borrower-dec-3',
       principal: 1_000_000,
     });
-    await declineLoan({ loanId: requested.id, declinedBy: 'borrower-dec-3' });
+    await declineLoan({ loanId: requested.id, declinedBy: 'lender-dec-3' });
 
-    await expect(declineLoan({ loanId: requested.id, declinedBy: 'borrower-dec-3' })).rejects.toThrow(
+    await expect(declineLoan({ loanId: requested.id, declinedBy: 'lender-dec-3' })).rejects.toThrow(
       LoanNotPendingError
     );
   });
