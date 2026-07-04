@@ -1,6 +1,7 @@
 import { type Interaction, MessageFlags } from 'discord.js';
 import { commands } from '../commands';
 import { handleBlackjackActionButton, isBlackjackActionButton } from './blackjackButton';
+import { handleLoanActionButton, isLoanActionButton } from './loanButton';
 import { handleMode1BetJoinButton, isMode1BetJoinButton } from './mode1BetButton';
 import {
   handleMode2BetAmountModal,
@@ -10,6 +11,7 @@ import {
 } from './mode2BetInteraction';
 import { handleRpsActionButton, isRpsActionButton } from './rpsButton';
 import { handleSettlementCancelButton, isSettlementCancelButton } from './settlementCancelButton';
+import { handlePlayGrantButton, isPlayGrantButton } from './minigamePlayGrantButton';
 import {
   handleUnifiedBetAmountModal,
   handleUnifiedBetChooseButton,
@@ -75,6 +77,15 @@ export async function handleInteractionCreate(interaction: Interaction) {
     return;
   }
 
+  if (interaction.isButton() && isPlayGrantButton(interaction.customId)) {
+    try {
+      await handlePlayGrantButton(interaction);
+    } catch (error) {
+      await replyWithGenericError(interaction, '횟수지급 버튼 처리 중 오류 발생', error);
+    }
+    return;
+  }
+
   if (interaction.isButton() && isUnifiedBetChooseButton(interaction.customId)) {
     try {
       await handleUnifiedBetChooseButton(interaction);
@@ -116,6 +127,15 @@ export async function handleInteractionCreate(interaction: Interaction) {
       await handleRpsActionButton(interaction);
     } catch (error) {
       await replyWithGenericError(interaction, '가위바위보 버튼 처리 중 오류 발생', error);
+    }
+    return;
+  }
+
+  if (interaction.isButton() && isLoanActionButton(interaction.customId)) {
+    try {
+      await handleLoanActionButton(interaction);
+    } catch (error) {
+      await replyWithGenericError(interaction, '대출 수락/거절 버튼 처리 중 오류 발생', error);
     }
     return;
   }

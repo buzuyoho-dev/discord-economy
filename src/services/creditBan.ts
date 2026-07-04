@@ -10,6 +10,9 @@ export async function isCreditBanned(userId: string, now: Date = new Date()): Pr
   const loans = await prisma.loan.findMany({ where: { borrowerId: userId } });
 
   return loans.some((loan) => {
+    if (!loan.dueAt) {
+      return false; // 아직 실행되지 않은(PENDING/DECLINED) 요청은 연체 대상이 아니다
+    }
     const banStart = loan.dueAt.getTime() + CREDIT_BAN_THRESHOLD_DAYS * ONE_DAY_MS;
     const banEnd = banStart + CREDIT_BAN_DURATION_DAYS * ONE_DAY_MS;
     return now.getTime() >= banStart && now.getTime() < banEnd;

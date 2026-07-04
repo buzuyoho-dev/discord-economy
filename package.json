@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "prisma migrate deploy && node dist/index.js",
+    "start": "prisma migrate deploy && npm run deploy-commands && node dist/index.js",
     "postinstall": "prisma generate",
     "test": "vitest run",
     "deploy-commands": "tsx src/deploy-commands.ts",

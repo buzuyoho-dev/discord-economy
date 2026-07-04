@@ -3,7 +3,7 @@ import { prisma } from '../../src/db/client';
 import { assignTier, getRankings } from '../../src/services/ranking';
 import { getOrCreateHouse } from '../../src/services/house';
 import { getOrCreateUser } from '../../src/services/ledger';
-import { createLoan } from '../../src/services/loan';
+import { acceptLoan, requestLoan } from '../../src/services/loan';
 
 describe('assignTier', () => {
   test('인원이 1명이면 1위가 신이다 (최하위보다 1위 규칙이 우선)', () => {
@@ -96,7 +96,12 @@ describe('getRankings', () => {
     await getOrCreateHouse();
 
     // 대출자는 원금만큼 즉시 차감되고, 차입자는 수수료를 뗀 만큼 즉시 증가한다 (6단계에서 구현된 그대로).
-    await createLoan({ lenderId: 'rank-lender', borrowerId: 'rank-borrower', principal: 9_000_000 });
+    const requested = await requestLoan({
+      lenderId: 'rank-lender',
+      borrowerId: 'rank-borrower',
+      principal: 9_000_000,
+    });
+    await acceptLoan({ loanId: requested.id, acceptedBy: 'rank-borrower' });
 
     const rankings = await getRankings();
     const lender = rankings.find((r) => r.discordId === 'rank-lender');

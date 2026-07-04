@@ -33,6 +33,10 @@ enum TransactionType {
   RPS_WIN
   RPS_LOSE
   RPS_VOID
+  MINIGAME_PLAY_GRANT
+  LOAN_VOID_REFUND
+  LOAN_VOID_FEE_REFUND
+  LOAN_VOID_HOUSE_ABSORB
 }
 
 model User {
@@ -188,6 +192,9 @@ model Mode2Entry {
 enum LoanStatus {
   ACTIVE
   REPAID
+  VOIDED
+  PENDING
+  DECLINED
 }
 
 model Loan {
@@ -195,10 +202,12 @@ model Loan {
   lenderId   String
   borrowerId String
   principal  Int
-  dueAt      DateTime
+  dueDays    Int?
+  dueAt      DateTime?
   status     LoanStatus @default(ACTIVE)
   createdAt  DateTime   @default(now())
   repaidAt   DateTime?
+  voidedAt   DateTime?
 
   @@index([borrowerId])
   @@index([lenderId])

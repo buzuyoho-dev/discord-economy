@@ -16,12 +16,14 @@ import * as gambleExtraPurchase from './gambleExtraPurchase';
 import * as house from './house';
 import * as lotteryBuy from './lotteryBuy';
 import * as loanCreate from './loanCreate';
+import * as loanMyLoans from './loanMyLoans';
 import * as loanRepay from './loanRepay';
 import * as mode1BetClose from './mode1BetClose';
 import * as mode1BetCreate from './mode1BetCreate';
 import * as mode1BetSettle from './mode1BetSettle';
 import * as mode2BetClose from './mode2BetClose';
 import * as mode2BetSettle from './mode2BetSettle';
+import * as minigamePlayGrant from './minigamePlayGrant';
 import * as pointHistory from './pointHistory';
 import * as ranking from './ranking';
 import * as rps from './rps';
@@ -51,10 +53,12 @@ export const commands = new Map<string, Command>([
   [transfer.data.name, transfer],
   [loanCreate.data.name, loanCreate],
   [loanRepay.data.name, loanRepay],
+  [loanMyLoans.data.name, loanMyLoans],
   [ranking.data.name, ranking],
   [settlementCancel.data.name, settlementCancel],
   [economyConfigSet.data.name, economyConfigSet],
   [economyConfigView.data.name, economyConfigView],
   [couponList.data.name, couponList],
   [pointHistory.data.name, pointHistory],
+  [minigamePlayGrant.data.name, minigamePlayGrant],
 ]);

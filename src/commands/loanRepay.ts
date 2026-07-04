@@ -5,7 +5,9 @@ import { loanErrorMessage } from './loanView';
 export const data = new SlashCommandBuilder()
   .setName('대출상환')
   .setDescription('내가 빌린 대출을 전액 상환합니다.')
-  .addIntegerOption((opt) => opt.setName('대출id').setDescription('대출 ID').setRequired(true));
+  .addIntegerOption((opt) =>
+    opt.setName('대출id').setDescription('대출 ID (/내대출 명령어로 확인 가능)').setRequired(true)
+  );
 
 export async function execute(interaction: ChatInputCommandInteraction) {
   const loanId = interaction.options.getInteger('대출id', true);
