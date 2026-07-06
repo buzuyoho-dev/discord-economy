@@ -9,8 +9,9 @@ import {
 } from 'discord.js';
 import { MessageFlags } from 'discord.js';
 import { buildResultEmbed, buildVoidEmbed } from '../discord/rpsView';
+import { BetTooLargeError, BetTooSmallError } from '../services/blackjack';
 import type { RpsChoice } from '../services/rps';
-import { resolveRpsChallenge } from '../services/rpsGame';
+import { InsufficientOpponentBalanceError, resolveRpsChallenge } from '../services/rpsGame';
 import { pendingRpsChallenges } from './rpsState';
 
 const CUSTOM_ID_PREFIX = 'rps:';
@@ -57,6 +58,26 @@ export function buildActionRow(challengeId: string): ActionRowBuilder<ButtonBuil
 }
 
 export class UnauthorizedResponderError extends Error {}
+
+// 💡 정산(resolveRpsChallenge)이 실패했을 때, "누구의 잔액이 부족해서" 실패했는지 알아낸다.
+// resolveRpsChallenge는 두 사람 중 누구 잔액이 모자라냐에 따라 서로 다른 에러를 던진다:
+// - 상대방(opponentId) 잔액이 베팅금보다 적으면 -> InsufficientOpponentBalanceError
+// - 도전자(challengerId) 잔액이 줄어서 베팅금이 "보유 포인트의 25%" 한도를 넘어버리면
+//   -> BetTooLargeError (너무 적어서 최소 베팅금 밑으로 떨어지는 경우는 이론상 없지만,
+//   같은 검증 함수가 쓰는 에러라 BetTooSmallError도 함께 처리해둔다)
+// 둘 다 아닌, 예상 못한 에러라면 undefined를 돌려줘서 "누구인지 모른다"고 솔직하게 표시한다.
+function identifyInsufficientBalanceUser(
+  error: unknown,
+  challenge: { challengerId: string; opponentId: string }
+): string | undefined {
+  if (error instanceof InsufficientOpponentBalanceError) {
+    return challenge.opponentId;
+  }
+  if (error instanceof BetTooLargeError || error instanceof BetTooSmallError) {
+    return challenge.challengerId;
+  }
+  return undefined;
+}
 
 // 💡 이 버튼을 누른 사람이 정말 "지목된 상대방 본인"이 맞는지 확인한다. 디스코드는 "이 버튼은
 // 이 사람만 눌러야 한다"는 걸 기본으로 막아주지 않기 때문에, 코드에서 직접 확인해야 한다.
@@ -164,6 +185,7 @@ export async function handleRpsActionButton(interaction: ButtonInteraction): Pro
       opponentId: challenge.opponentId,
       betAmount: challenge.betAmount,
       reason: 'INVALID_BALANCE',
+      insufficientUserId: identifyInsufficientBalanceUser(error, challenge),
     });
     await interaction.editReply({ embeds: [embed], components: [] });
   }

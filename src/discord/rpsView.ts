@@ -38,11 +38,18 @@ export function buildVoidEmbed(params: {
   opponentId: string;
   betAmount: number;
   reason: 'REJECTED' | 'TIMEOUT' | 'INVALID_BALANCE';
+  // 💡 reason이 'INVALID_BALANCE'일 때만 쓰인다: 도전자(challengerId)/상대방(opponentId) 중
+  // "진짜로 잔액이 모자랐던" 사람의 디스코드 ID. 호출하는 쪽(rpsButton.ts)이 어떤 에러가
+  // 났는지 보고 알아내서 넘겨준다. 혹시 몰라서 못 넘겨주면(undefined) 예전처럼 이름 없이
+  // 안내한다 - 누구인지 모르는데 아무나 지목하면 안 되기 때문이다.
+  insufficientUserId?: string;
 }): EmbedBuilder {
   const reasonText: Record<typeof params.reason, string> = {
     REJECTED: `❌ <@${params.opponentId}>님이 대결을 거절했습니다.`,
     TIMEOUT: '⏱️ 10분 동안 응답이 없어 자동으로 무효 처리되었습니다.',
-    INVALID_BALANCE: '⚠️ 잔액이 부족해져서 무효 처리되었습니다.',
+    INVALID_BALANCE: params.insufficientUserId
+      ? `⚠️ <@${params.insufficientUserId}>님의 보유 포인트가 부족해서 무효 처리되었습니다.`
+      : '⚠️ 잔액이 부족해져서 무효 처리되었습니다.',
   };
 
   return new EmbedBuilder()

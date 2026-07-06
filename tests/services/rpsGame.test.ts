@@ -239,4 +239,52 @@ describe('resolveRpsChallenge', () => {
     // 딱 한 번만 패배 차감됨 (승자는 상대방이므로 챌린저는 베팅금만큼만 줄어든다)
     expect(challenger.balance).toBe(STARTING_BALANCE - bet);
   });
+
+  test('A가 B와의 대결에서 먼저 패배해 잔액이 줄어든 뒤, 별도로 받아둔 C의 도전을 수락하면 무효 처리된다', async () => {
+    const userAId = 'rps-multi-userA';
+    const userBId = 'rps-multi-userB';
+    const userCId = 'rps-multi-userC';
+    await getOrCreateUser(userAId);
+    await getOrCreateUser(userBId);
+    await getOrCreateUser(userCId);
+
+    // 💡 베팅 상한이 "보유 포인트의 25%"라서 한 판으로 잔액을 정확히 0까지 만들 수는 없다.
+    // 대신 C가 신청해둔 베팅금(자기 잔액의 25%)보다 A의 잔액이 낮아지는 상황을 재현한다.
+    const userAInitialBalance = 3_000_000;
+    await prisma.user.update({ where: { discordId: userAId }, data: { balance: userAInitialBalance } });
+    const aBetAmount = Math.floor(userAInitialBalance * 0.25); // 750,000
+
+    const firstResult = await resolveRpsChallenge({
+      challengerId: userAId,
+      opponentId: userBId,
+      betAmount: aBetAmount,
+      challengerChoice: '가위',
+      opponentChoice: '바위', // A가 진다 (OPPONENT_WIN)
+      now: NOW,
+    });
+    expect(firstResult.result).toBe('OPPONENT_WIN');
+    expect(firstResult.challengerBalanceAfter).toBe(userAInitialBalance - aBetAmount); // 2,250,000
+
+    // 💡 C는 A가 B와 대결하는 동안 이미 A에게 도전을 신청해둔 상태였고, A가 이제서야
+    // 수락 버튼을 누른다고 가정한다. 이 두 번째 대결에서는 C가 챌린저, A가 상대(opponent)다.
+    // C는 자기 잔액(STARTING_BALANCE)의 25%인 2,500,000P를 걸었는데, 이는 A의 남은
+    // 잔액(2,250,000P)보다 크다.
+    const cBetAmount = Math.floor(STARTING_BALANCE * 0.25);
+    await expect(
+      resolveRpsChallenge({
+        challengerId: userCId,
+        opponentId: userAId,
+        betAmount: cBetAmount,
+        challengerChoice: '바위',
+        opponentChoice: '가위',
+        now: NOW,
+      })
+    ).rejects.toThrow(InsufficientOpponentBalanceError);
+
+    // 💡 두 번째 대결은 재검증 단계에서 막혔으므로 A, C 모두 추가로 차감된 것이 없어야 한다.
+    const userA = await prisma.user.findUniqueOrThrow({ where: { discordId: userAId } });
+    expect(userA.balance).toBe(userAInitialBalance - aBetAmount);
+    const userC = await prisma.user.findUniqueOrThrow({ where: { discordId: userCId } });
+    expect(userC.balance).toBe(STARTING_BALANCE);
+  });
 });
