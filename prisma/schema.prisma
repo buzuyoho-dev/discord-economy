@@ -68,11 +68,12 @@ model House {
 
 // 싱글톤 - row는 항상 1개("SINGLETON")만 존재한다.
 model EconomyConfig {
-  id                   String   @id @default("SINGLETON")
-  rebateRate           Float    @default(0.05)
-  lowerTierWeight      Float    @default(1.5)
-  houseBalanceCapRatio Float    @default(0.4)
-  updatedAt            DateTime @updatedAt
+  id                      String   @id @default("SINGLETON")
+  rebateRate              Float    @default(0.05)
+  lowerTierWeight         Float    @default(1.5)
+  houseBalanceCapRatio    Float    @default(0.4)
+  rebateAnnounceChannelId String   @default("1518506716164259910")
+  updatedAt               DateTime @updatedAt
 }
 
 // 유저 노출명: "베팅2배쿠폰"
