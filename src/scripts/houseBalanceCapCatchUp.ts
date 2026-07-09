@@ -2,7 +2,7 @@ import { Prisma, TransactionType } from '@prisma/client';
 import { prisma } from '../db/client';
 import { computeRebateDistribution, getLowerTierUserIds } from '../services/distributionBatch';
 import { getOrCreateEconomyConfig } from '../services/economyConfig';
-import { applyHouseTransaction, getEconomySnapshot } from '../services/house';
+import { applyHouseTransaction, computeHouseCapExcess, getEconomySnapshot } from '../services/house';
 import { applyTransaction } from '../services/ledger';
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -26,8 +26,11 @@ export interface CatchUpPlan {
 async function buildCatchUpPlan(db: Db): Promise<CatchUpPlan> {
   const config = await getOrCreateEconomyConfig(db);
   const { house, totalEconomy } = await getEconomySnapshot(db);
-  const capAmount = Math.floor(totalEconomy * config.houseBalanceCapRatio);
-  const excessAmount = Math.max(0, house.balance - capAmount);
+  const { capAmount, excessAmount } = computeHouseCapExcess({
+    totalEconomy,
+    houseBalance: house.balance,
+    capRatio: config.houseBalanceCapRatio,
+  });
 
   const users = await db.user.findMany({ select: { discordId: true } });
   const lowerTierUserIds = await getLowerTierUserIds(db);

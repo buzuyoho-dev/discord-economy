@@ -1,7 +1,7 @@
 import { Prisma, TransactionType } from '@prisma/client';
 import { prisma } from '../db/client';
 import { getOrCreateEconomyConfig } from './economyConfig';
-import { applyHouseTransaction, getEconomySnapshot, HOUSE_ID } from './house';
+import { applyHouseTransaction, computeHouseCapExcess, getEconomySnapshot, HOUSE_ID } from './house';
 import { applyTransaction } from './ledger';
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -119,8 +119,11 @@ export async function distributionBatch(
     // 전액을 환급"하는 방식으로 교체했다. rebateRate는 스키마/DB에는 남겨두지만
     // (추후 다른 용도로 재사용될 수 있어 완전히 제거하지 않음) 이 계산에는 더 이상
     // 쓰이지 않는다.
-    const capAmount = Math.floor(totalEconomy * config.houseBalanceCapRatio);
-    const fundAmount = Math.max(0, house.balance - capAmount);
+    const { excessAmount: fundAmount } = computeHouseCapExcess({
+      totalEconomy,
+      houseBalance: house.balance,
+      capRatio: config.houseBalanceCapRatio,
+    });
 
     const users = await tx.user.findMany({
       where: options?.excludeUserId ? { discordId: { not: options.excludeUserId } } : undefined,

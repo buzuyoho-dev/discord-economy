@@ -3,6 +3,7 @@ import { prisma } from '../../src/db/client';
 import { getOrCreateUser, InsufficientBalanceError } from '../../src/services/ledger';
 import {
   applyHouseTransaction,
+  computeHouseCapExcess,
   getEconomySnapshot,
   getHouseStatus,
   getOrCreateHouse,
@@ -50,6 +51,41 @@ describe('getEconomySnapshot', () => {
     expect(snapshot.house.balance).toBe(5_000_000);
     expect(snapshot.totalUserBalance).toBe(20_000_000);
     expect(snapshot.totalEconomy).toBe(25_000_000);
+  });
+});
+
+describe('computeHouseCapExcess', () => {
+  test('하우스 잔액이 캡을 초과하면 초과분을 양수로 반환한다', () => {
+    const result = computeHouseCapExcess({
+      totalEconomy: 100_000,
+      houseBalance: 80_000,
+      capRatio: 0.5,
+    });
+
+    expect(result.capAmount).toBe(50_000);
+    expect(result.excessAmount).toBe(30_000);
+  });
+
+  test('하우스 잔액이 캡 미만이면 초과분은 0이다(음수 아님)', () => {
+    const result = computeHouseCapExcess({
+      totalEconomy: 100_000,
+      houseBalance: 30_000,
+      capRatio: 0.5,
+    });
+
+    expect(result.capAmount).toBe(50_000);
+    expect(result.excessAmount).toBe(0);
+  });
+
+  test('하우스 잔액이 캡과 정확히 같으면 초과분은 정확히 0이다', () => {
+    const result = computeHouseCapExcess({
+      totalEconomy: 100_000,
+      houseBalance: 50_000,
+      capRatio: 0.5,
+    });
+
+    expect(result.capAmount).toBe(50_000);
+    expect(result.excessAmount).toBe(0);
   });
 });
 
