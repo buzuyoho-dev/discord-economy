@@ -1,5 +1,4 @@
 import { Prisma, TransactionType } from '@prisma/client';
-import { env } from '../config/env';
 import { prisma } from '../db/client';
 import { computeRebateDistribution, getLowerTierUserIds } from '../services/distributionBatch';
 import { getOrCreateEconomyConfig } from '../services/economyConfig';
@@ -110,10 +109,16 @@ export async function runCatchUp(
 }
 
 async function main() {
+  // 💡 '../config/env'의 env 객체는 DISCORD_TOKEN 등을 import 시점에 즉시 검증(없으면 throw)한다 -
+  // 이 스크립트는 Discord API를 전혀 쓰지 않는 순수 DB 스크립트이고, 이 파일을 테스트가 직접
+  // import하므로(runCatchUp/buildCatchUpPlan 단위 테스트), 거기서 env를 정적 import하면
+  // .env가 없는 환경(새 워크트리, CI 등)에서 테스트 스위트 전체가 깨진다. main()이 실제로
+  // 실행될 때만(= 이 스크립트를 직접 실행할 때만) dotenv를 동적으로 로드한다.
+  await import('dotenv/config');
   const execute = process.argv.includes('--execute');
-  // 💡 봇 자신은 절대 catch-up 지급 대상이 되면 안 되므로, 봇의 Discord ID(=DISCORD_CLIENT_ID)를
+  // 봇 자신은 절대 catch-up 지급 대상이 되면 안 되므로, 봇의 Discord ID(=DISCORD_CLIENT_ID)를
   // 명시적으로 제외한다. (runDistributionBatch()의 client.user?.id 제외와 동일한 취지)
-  await runCatchUp(execute, undefined, { excludeUserId: env.DISCORD_CLIENT_ID });
+  await runCatchUp(execute, undefined, { excludeUserId: process.env.DISCORD_CLIENT_ID });
 }
 
 if (require.main === module) {
