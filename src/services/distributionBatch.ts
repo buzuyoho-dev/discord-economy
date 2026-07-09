@@ -1,7 +1,7 @@
 import { Prisma, TransactionType } from '@prisma/client';
 import { prisma } from '../db/client';
 import { getOrCreateEconomyConfig } from './economyConfig';
-import { applyHouseTransaction, getOrCreateHouse, HOUSE_ID } from './house';
+import { applyHouseTransaction, getEconomySnapshot, HOUSE_ID } from './house';
 import { applyTransaction } from './ledger';
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -68,59 +68,91 @@ export async function issueCouponsForUsers(
   return { issuedUserIds, skippedUserIds };
 }
 
+export interface RebateDistributionResult {
+  perUserAmounts: Map<string, number>;
+  totalDistributed: number;
+}
+
+// 정기 배치와 catch-up 스크립트가 공유하는 순수 분배 함수 (DB 접근 없음).
+// fundAmount를 "일반 유저 1지분 + 하위 30% 유저는 lowerTierWeight배" 규칙으로 나눈다.
+export function computeRebateDistribution(params: {
+  users: { discordId: string }[];
+  lowerTierUserIds: string[];
+  fundAmount: number;
+  lowerTierWeight: number;
+}): RebateDistributionResult {
+  const lowerTierIds = new Set(params.lowerTierUserIds);
+  const perUserAmounts = new Map<string, number>();
+
+  if (params.fundAmount <= 0 || params.users.length === 0) {
+    return { perUserAmounts, totalDistributed: 0 };
+  }
+
+  const totalWeight =
+    params.users.length + params.lowerTierUserIds.length * (params.lowerTierWeight - 1);
+  const unitShare = Math.floor(params.fundAmount / totalWeight);
+
+  let totalDistributed = 0;
+  for (const user of params.users) {
+    const amount = lowerTierIds.has(user.discordId)
+      ? Math.floor(unitShare * params.lowerTierWeight)
+      : unitShare;
+    if (amount <= 0) continue;
+    perUserAmounts.set(user.discordId, amount);
+    totalDistributed += amount;
+  }
+
+  return { perUserAmounts, totalDistributed };
+}
+
 export async function distributionBatch(
   now: Date = new Date(),
   options?: { excludeUserId?: string }
 ): Promise<DistributionBatchResult> {
   return prisma.$transaction(async (tx) => {
     const config = await getOrCreateEconomyConfig(tx);
-    const house = await getOrCreateHouse(tx);
+    const { house, totalEconomy } = await getEconomySnapshot(tx);
 
-    // 실행 간격이 얼마든(주 1회든 주 3회든) 이 시점의 순증가분만 계산하므로 빈도 변경과 무관하다.
-    const netGain = Math.max(0, house.balance - house.lastRebateBalance);
-    const fundAmount = Math.floor(netGain * config.rebateRate);
+    // 예전 방식: "순증가분(house.balance - lastRebateBalance) × rebateRate(5%)".
+    // 하우스 유입 속도가 빨라지면 환급이 못 따라가는 문제가 있어(2026-07 하우스 잔고
+    // 75%까지 급증) "하우스가 전체 경제의 houseBalanceCapRatio를 넘지 않도록 초과분
+    // 전액을 환급"하는 방식으로 교체했다. rebateRate는 스키마/DB에는 남겨두지만
+    // (추후 다른 용도로 재사용될 수 있어 완전히 제거하지 않음) 이 계산에는 더 이상
+    // 쓰이지 않는다.
+    const capAmount = Math.floor(totalEconomy * config.houseBalanceCapRatio);
+    const fundAmount = Math.max(0, house.balance - capAmount);
 
     const users = await tx.user.findMany({
       where: options?.excludeUserId ? { discordId: { not: options.excludeUserId } } : undefined,
       orderBy: { balance: 'asc' },
-      select: { discordId: true, balance: true },
+      select: { discordId: true },
     });
     const lowerTierUserIds = await getLowerTierUserIds(tx, options);
-    const lowerTierCount = lowerTierUserIds.length;
-    const lowerTierIds = new Set(lowerTierUserIds);
 
-    const perUserAmounts = new Map<string, number>();
+    const { perUserAmounts, totalDistributed } = computeRebateDistribution({
+      users,
+      lowerTierUserIds,
+      fundAmount,
+      lowerTierWeight: config.lowerTierWeight,
+    });
 
-    if (fundAmount > 0 && users.length > 0) {
-      const totalWeight = users.length + lowerTierCount * (config.lowerTierWeight - 1);
-      const unitShare = Math.floor(fundAmount / totalWeight);
-
-      for (const user of users) {
-        const amount = lowerTierIds.has(user.discordId)
-          ? Math.floor(unitShare * config.lowerTierWeight)
-          : unitShare;
-        if (amount <= 0) {
-          continue;
-        }
-        perUserAmounts.set(user.discordId, amount);
-        await applyTransaction(tx, {
-          discordId: user.discordId,
-          type: TransactionType.REBATE,
-          amount,
-          description: '환급',
-          occurredAt: now,
-        });
-      }
+    for (const [discordId, amount] of perUserAmounts) {
+      await applyTransaction(tx, {
+        discordId,
+        type: TransactionType.REBATE,
+        amount,
+        description: '환급',
+        occurredAt: now,
+      });
     }
 
-    const totalDistributed = [...perUserAmounts.values()].reduce((sum, amount) => sum + amount, 0);
     const distributed = totalDistributed > 0;
 
     if (distributed) {
       const updatedHouse = await applyHouseTransaction(tx, {
         type: TransactionType.REBATE,
         amount: -totalDistributed,
-        description: '환급 재원 지급 (반올림 잔돈은 하우스에 남김)',
+        description: '환급 재원 지급 (하우스 캡 초과분, 반올림 잔돈은 하우스에 남김)',
         occurredAt: now,
       });
       await tx.house.update({
@@ -128,7 +160,7 @@ export async function distributionBatch(
         data: { lastRebateBalance: updatedHouse.balance, lastRebateAt: now },
       });
     } else {
-      // 재원이 없어도 다음 실행의 순증가분 계산 기준이 꼬이지 않도록 현재 값으로 체크포인트를 갱신한다.
+      // 초과분이 없어도 감사 기록 차원에서 체크포인트는 현재 값으로 갱신한다.
       await tx.house.update({
         where: { id: HOUSE_ID },
         data: { lastRebateBalance: house.balance, lastRebateAt: now },
@@ -140,7 +172,7 @@ export async function distributionBatch(
     return {
       distributed,
       fundAmount,
-      lowerTierCount,
+      lowerTierCount: lowerTierUserIds.length,
       couponsIssued: issuedUserIds.length,
       couponsSkipped: skippedUserIds.length,
       perUserAmounts,
