@@ -1,11 +1,44 @@
 # discord-economy 진행상황 브리핑
 > 다음 세션 시작 시 클로드 코드에게 "이 파일 읽고 이어서 작업해줘"라고 전달하세요.
-> 최종 업데이트: 2026-07-04
+> 최종 업데이트: 2026-07-10
 
 ## ⚠️ 새 세션 시작 시 필수 체크
 다른 기기(윈도우/맥북)에서 작업했을 수 있으니, 작업 시작 전에 반드시 `git pull`부터
 실행해서 원격(origin/main)과 로컬을 동기화할 것. 확인 없이 새 커밋을 만들면 원격에
 있는 다른 기기의 작업 내역과 충돌 날 수 있음.
+
+---
+
+## 하우스 잔고 상한(House Balance Cap) 시스템 구현 (2026-07-10)
+
+**배경**: 하우스 잔고가 전체 경제 규모의 75%까지 불어남 (`HOUSE_SYSTEM_OVERVIEW.md` 조사로
+발견). 기존 주간 환급 배치는 "하우스 잔고 순증가분 × 고정 5%"만 환급하는 구조라 유입
+속도를 못 따라갔음.
+
+**변경 사항**:
+- `EconomyConfig`에 `houseBalanceCapRatio`(기본 0.4, 즉 40%) 필드 추가.
+  `rebateRate`는 스키마/DB 값은 유지하되 계산에는 더 이상 쓰이지 않음(주석으로 명시).
+- `house.ts`: 기존 `getHouseStatus()`에 있던 "전체 경제 규모" 계산을
+  `getEconomySnapshot()`으로 추출해 공용화.
+- `distributionBatch.ts`: 하위 30% 가중치 분배 로직을 `computeRebateDistribution()`
+  순수 함수로 추출. 주간 배치의 재원 계산을 "순증가분 × rebateRate"에서
+  "하우스잔고 - (전체경제규모 × houseBalanceCapRatio)"(초과분 전액)로 교체.
+  초과분이 0 이하면 정상 스킵(에러 아님).
+- `src/scripts/houseBalanceCapCatchUp.ts` (신규): 현재 75%까지 벌어진 격차를 한 번에
+  메우는 catch-up CLI 스크립트. 기본 dry-run(계산만, DB 미변경), `--execute` 플래그를
+  줘야 실제 지급. `computeRebateDistribution()`을 재사용하되 베팅2배쿠폰은 발급하지
+  않음. 사용법: `npx tsx src/scripts/houseBalanceCapCatchUp.ts` (dry-run) →
+  `npx tsx src/scripts/houseBalanceCapCatchUp.ts --execute` (실제 지급).
+- `/환급설정`: `비율` 옵션 제거, `캡비율` 옵션 추가 (`가중치`는 유지). `/환급설정조회`도
+  동일하게 갱신.
+
+**설계 문서**: `docs/superpowers/specs/2026-07-10-house-balance-cap-design.md`
+**구현 계획**: `docs/superpowers/plans/2026-07-10-house-balance-cap.md`
+
+**다음 세션에서 확인 필요**:
+- [ ] catch-up 스크립트 실제 실행 여부 확인 (dry-run으로 먼저 숫자 검토 후 `--execute`)
+- [ ] `deploy-commands` 실행해서 `/환급설정`의 새 옵션(`캡비율`)이 디스코드에 반영됐는지 확인
+- [ ] catch-up 실행 후 `/하우스`로 하우스 점유율이 40% 근처로 내려왔는지 확인
 
 ---
 
