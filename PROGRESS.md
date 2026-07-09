@@ -9,6 +9,41 @@
 
 ---
 
+## 환급 결과 투명 공지 시스템 구현 (2026-07-10)
+
+**배경**: 하우스 캡 기반 환급이 주간 정기 배치와 catch-up 스크립트 양쪽에서 발생하는데,
+누가 얼마를 받았는지 디스코드에서 투명하게 알 수 있는 방법이 없었음(정기 배치는 요약
+치문 텍스트뿐, catch-up은 공지 자체가 없었음).
+
+**변경 사항**:
+- `EconomyConfig.rebateAnnounceChannelId`(기본값 `1518506716164259910`) 추가 - 환급
+  공지 채널의 단일 기준. 기존 `env.REBATE_ANNOUNCEMENT_CHANNEL_ID`는 완전히 제거.
+- `src/discord/rebateAnnouncement.ts` (신규): 총 환급액/유저별 지급 내역(금액 내림차순,
+  멘션 표시)/환급 후 하우스 잔고 및 캡 대비 퍼센트를 담은 임베드를 조립하는
+  `buildRebateAnnouncementEmbed()`(순수 함수)와, 채널을 조회해 실제 전송하는
+  `sendRebateAnnouncement()`. 유저가 많으면(필드 25개 초과, 대략 375명 이상) 전체
+  명단을 `.txt` 첨부파일로 대체.
+- 주간 정기 배치(`src/jobs/distributionBatch.ts`)는 기존 치문 텍스트 공지를 이 임베드로
+  완전히 교체. 환급이 없었던 회차도 계속 공지(간단한 임베드).
+- catch-up 스크립트(`src/scripts/houseBalanceCapCatchUp.ts`)는 `--execute`로 실행해
+  실제 지급이 있었을 때만 잠깐 디스코드에 로그인해 공지를 보내고 바로 로그아웃.
+- 지급(DB) 로직과 공지(Discord) 로직은 항상 분리된 try-catch로 감싸서, 공지 전송이
+  실패해도(권한 문제 등) 이미 완료된 지급 결과에는 영향이 없음.
+
+**설계 문서**: `docs/superpowers/specs/2026-07-10-rebate-announcement-design.md`
+**구현 계획**: `docs/superpowers/plans/2026-07-10-rebate-announcement.md`
+
+**다음 세션에서 확인 필요**:
+- [ ] `.env`/Railway 설정에서 이제 안 쓰는 `REBATE_ANNOUNCEMENT_CHANNEL_ID`는 그냥
+      정리되지 않은 채로 남아있어도 무해함(코드가 더 이상 읽지 않음) - 원하면 정리
+- [ ] 채널 `1518506716164259910`에 봇의 "메시지 보내기"/"파일 첨부" 권한이 있는지 확인
+- [ ] 실제 디스코드에서 주간 배치(또는 catch-up dry-run 없이 소액 execute)로 임베드가
+      의도한 대로(총액/유저별 내역/하우스 잔고%) 표시되는지 수동 확인
+- [ ] 유저 수가 매우 많을 때(수백 명 이상) `.txt` 첨부파일 폴백이 실제로도 정상 동작하는지
+      수동 확인(유닛 테스트로는 검증했지만 실제 디스코드 전송은 미확인)
+
+---
+
 ## 하우스 잔고 상한(House Balance Cap) 시스템 구현 (2026-07-10)
 
 **배경**: 하우스 잔고가 전체 경제 규모의 75%까지 불어남 (`HOUSE_SYSTEM_OVERVIEW.md` 조사로
