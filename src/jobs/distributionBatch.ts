@@ -1,6 +1,8 @@
 import { DiscordAPIError, type Client } from 'discord.js';
-import { env } from '../config/env';
-import { distributionBatch, type DistributionBatchResult } from '../services/distributionBatch';
+import { sendRebateAnnouncement } from '../discord/rebateAnnouncement';
+import { distributionBatch } from '../services/distributionBatch';
+import { getOrCreateEconomyConfig } from '../services/economyConfig';
+import { getEconomySnapshot } from '../services/house';
 
 // Discord API 오류 코드: https://discord.com/developers/docs/topics/opcodes-and-status-codes#json
 const MISSING_ACCESS = 50001;
@@ -18,55 +20,44 @@ export async function scheduleDistributionBatch(client: Client) {
 
 export async function runDistributionBatch(client: Client) {
   try {
+    const config = await getOrCreateEconomyConfig();
     // 💡 봇 자신은 절대 환급/쿠폰 대상이 되면 안 되므로, 봇의 Discord ID를 명시적으로 제외한다.
     const result = await distributionBatch(new Date(), { excludeUserId: client.user?.id });
-    await announceDistribution(client, result);
-  } catch (error) {
-    // DiscordAPIError는 announceDistribution()의 channel.send()에서만 발생할 수 있다
-    // (distributionBatch는 순수 DB 트랜잭션이라 Discord API를 호출하지 않는다).
-    // 즉 이 분기에 걸렸다는 건 환급/쿠폰 지급 자체는 이미 정상적으로 끝났고, 공지
-    // 메시지만 못 보낸 것이다 - 원인(권한 문제 등)을 명확히 짚어준다.
-    if (error instanceof DiscordAPIError && (error.code === MISSING_PERMISSIONS || error.code === MISSING_ACCESS)) {
+
+    try {
+      // 지급(DB 처리)이 끝난 뒤 하우스 잔고/전체 경제 규모를 다시 읽는다 - 환급은
+      // 하우스→유저 이동일 뿐 totalEconomy 자체는 바뀌지 않으므로 이 조회는 정확하다.
+      const { house, totalEconomy } = await getEconomySnapshot();
+      await sendRebateAnnouncement(client, config.rebateAnnounceChannelId, {
+        reason: 'WEEKLY_BATCH',
+        distributed: result.distributed,
+        totalDistributed: result.fundAmount,
+        perUserAmounts: [...result.perUserAmounts].map(([discordId, amount]) => ({
+          discordId,
+          amount,
+        })),
+        houseBalanceAfter: house.balance,
+        totalEconomy,
+        capRatio: config.houseBalanceCapRatio,
+      });
+    } catch (error) {
+      // 공지 실패는 지급(DB 처리) 결과에 영향을 주지 않는다 - 이미 커밋된 상태를 그대로 유지.
+      if (
+        error instanceof DiscordAPIError &&
+        (error.code === MISSING_PERMISSIONS || error.code === MISSING_ACCESS)
+      ) {
+        console.error(
+          `[환급/쿠폰 배치] 지급 처리는 정상적으로 완료되었지만, 공지 메시지 전송에 실패했습니다. ` +
+            `봇에게 채널(${config.rebateAnnounceChannelId})의 "메시지 보내기" 권한이 있는지 확인해주세요. (Discord error code ${error.code})`
+        );
+        return;
+      }
       console.error(
-        `[환급/쿠폰 배치] 지급 처리는 정상적으로 완료되었지만, 공지 메시지 전송에 실패했습니다. ` +
-          `봇에게 채널(${env.REBATE_ANNOUNCEMENT_CHANNEL_ID})의 "메시지 보내기" 권한이 있는지 확인해주세요. (Discord error code ${error.code})`
+        '[환급/쿠폰 배치] 지급 처리는 정상적으로 완료되었지만, 공지 메시지 전송 중 오류가 발생했습니다.',
+        error
       );
-      return;
     }
+  } catch (error) {
     console.error('환급/쿠폰 배치 처리 중 오류 발생', error);
   }
-}
-
-async function announceDistribution(client: Client, result: DistributionBatchResult) {
-  const channelId = env.REBATE_ANNOUNCEMENT_CHANNEL_ID;
-  if (!channelId) {
-    console.warn(
-      'REBATE_ANNOUNCEMENT_CHANNEL_ID가 설정되지 않아 환급/쿠폰 안내 메시지를 보내지 않습니다.'
-    );
-    return;
-  }
-
-  const channel = await client.channels.fetch(channelId).catch(() => null);
-  if (!channel || !channel.isTextBased() || !channel.isSendable()) {
-    console.warn(`채널 ${channelId}을 찾을 수 없거나 메시지를 보낼 수 없습니다.`);
-    return;
-  }
-
-  const lines: string[] = ['**[정산 배치] 하우스 환급 & 베팅2배쿠폰 발급**'];
-
-  if (result.distributed) {
-    const perUserCount = result.perUserAmounts.size;
-    lines.push(
-      `하우스 캡 초과분 기준 환급 재원: ${result.fundAmount.toLocaleString()}P`,
-      `대상 ${perUserCount}명에게 지급 완료 (\`/잔액\`으로 정확한 지급액 확인 가능)`
-    );
-  } else {
-    lines.push('이번 배치는 하우스 잔고가 캡 이하라 환급이 지급되지 않았습니다.');
-  }
-
-  lines.push(
-    `📮 베팅2배쿠폰: 하위 ${result.lowerTierCount}명 중 ${result.couponsIssued}명 신규 발급, ${result.couponsSkipped}명은 이미 2장 보유로 스킵 (7일간 유효, \`/쿠폰함\`으로 확인).`
-  );
-
-  await channel.send(lines.join('\n'));
 }
