@@ -122,8 +122,8 @@ describe('distributionBatch - 원자성', () => {
     await updateEconomyConfig({
       requestedBy: 'admin-1',
       adminDiscordId: 'admin-1',
-      rebateRate: 1,
       lowerTierWeight: 1.5,
+      houseBalanceCapRatio: 0.4,
     });
 
     await expect(distributionBatch(new Date('2026-07-05T00:00:00.000Z'))).rejects.toThrow();

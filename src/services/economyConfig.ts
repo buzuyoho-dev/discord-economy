@@ -22,23 +22,23 @@ export async function getOrCreateEconomyConfig(db: Db = prisma) {
 export async function updateEconomyConfig(params: {
   requestedBy: string;
   adminDiscordId: string | undefined;
-  rebateRate: number;
   lowerTierWeight: number;
+  houseBalanceCapRatio: number;
 }) {
   if (!params.adminDiscordId || params.requestedBy !== params.adminDiscordId) {
     throw new NotAdminError(params.requestedBy);
   }
-  if (!(params.rebateRate > 0 && params.rebateRate <= 1)) {
-    throw new InvalidEconomyConfigError('rebateRate must be in (0, 1]');
-  }
   if (!(params.lowerTierWeight >= 1)) {
     throw new InvalidEconomyConfigError('lowerTierWeight must be >= 1');
+  }
+  if (!(params.houseBalanceCapRatio > 0 && params.houseBalanceCapRatio <= 1)) {
+    throw new InvalidEconomyConfigError('houseBalanceCapRatio must be in (0, 1]');
   }
 
   await getOrCreateEconomyConfig();
 
   return prisma.economyConfig.update({
     where: { id: ECONOMY_CONFIG_ID },
-    data: { rebateRate: params.rebateRate, lowerTierWeight: params.lowerTierWeight },
+    data: { lowerTierWeight: params.lowerTierWeight, houseBalanceCapRatio: params.houseBalanceCapRatio },
   });
 }
