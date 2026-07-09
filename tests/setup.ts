@@ -6,6 +6,7 @@ beforeEach(async () => {
   await prisma.bettingDoubleCoupon.deleteMany();
   await prisma.economyConfig.deleteMany();
   await prisma.lotteryStatusMessage.deleteMany();
+  await prisma.lotteryDrawLog.deleteMany();
   await prisma.lotteryTicket.deleteMany();
   await prisma.lotteryState.deleteMany();
   await prisma.loan.deleteMany();

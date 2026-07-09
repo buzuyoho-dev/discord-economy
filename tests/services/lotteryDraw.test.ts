@@ -1,4 +1,4 @@
-import { TransactionType } from '@prisma/client';
+import { LotteryDrawSource, TransactionType } from '@prisma/client';
 import { describe, expect, test } from 'vitest';
 import { prisma } from '../../src/db/client';
 import { HOUSE_ID } from '../../src/services/house';
@@ -184,6 +184,29 @@ describe('runLotteryDraw - 이월 잭팟 반영', () => {
 
     const state = await prisma.lotteryState.findUniqueOrThrow({ where: { id: 1 } });
     expect(state.currentJackpot).toBe(expectedCarryover);
+  });
+});
+
+describe('runLotteryDraw - 감사 로그', () => {
+  test('추첨마다 LotteryDrawLog에 당첨번호/참여자수/source가 기록된다 (기본값 CRON)', async () => {
+    await buyTicket('d-log-1', 3);
+    await buyTicket('d-log-2', 5);
+
+    const result = await runLotteryDraw({ drawDate: DRAW_DATE, pickNumber: () => 7 });
+
+    const logs = await prisma.lotteryDrawLog.findMany({ where: { drawDate: DRAW_DATE } });
+    expect(logs).toHaveLength(1);
+    expect(logs[0].winningNumber).toBe(result.winningNumber);
+    expect(logs[0].ticketCount).toBe(2);
+    expect(logs[0].source).toBe(LotteryDrawSource.CRON);
+  });
+
+  test('source를 MANUAL로 넘기면 그대로 기록된다', async () => {
+    await runLotteryDraw({ drawDate: DRAW_DATE, pickNumber: () => 7, source: LotteryDrawSource.MANUAL });
+
+    const logs = await prisma.lotteryDrawLog.findMany({ where: { drawDate: DRAW_DATE } });
+    expect(logs).toHaveLength(1);
+    expect(logs[0].source).toBe(LotteryDrawSource.MANUAL);
   });
 });
 

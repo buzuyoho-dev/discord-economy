@@ -1,5 +1,5 @@
 import { randomInt } from 'crypto';
-import { TransactionType } from '@prisma/client';
+import { LotteryDrawSource, TransactionType } from '@prisma/client';
 import { prisma } from '../db/client';
 import { applyHouseTransaction } from './house';
 import { applyTransaction } from './ledger';
@@ -17,15 +17,17 @@ export interface LotteryDrawResult {
   carriedOver: number;
 }
 
-function cryptoPickNumber(): number {
+export function cryptoPickNumber(): number {
   return randomInt(LOTTERY_MIN_NUMBER, LOTTERY_MAX_NUMBER + 1);
 }
 
 export async function runLotteryDraw(params: {
   drawDate: Date;
   pickNumber?: () => number;
+  source?: LotteryDrawSource;
 }): Promise<LotteryDrawResult> {
   const pickNumber = params.pickNumber ?? cryptoPickNumber;
+  const source = params.source ?? LotteryDrawSource.CRON;
 
   return prisma.$transaction(async (tx) => {
     const tickets = await tx.lotteryTicket.findMany({
@@ -41,6 +43,15 @@ export async function runLotteryDraw(params: {
     const winningNumber = pickNumber();
     const winnerTickets = tickets.filter((t) => t.chosenNumber === winningNumber);
     const winners = winnerTickets.map((t) => t.userId);
+
+    await tx.lotteryDrawLog.create({
+      data: {
+        drawDate: params.drawDate,
+        winningNumber,
+        ticketCount: tickets.length,
+        source,
+      },
+    });
 
     let prizePerWinner = 0;
     let tax = 0;

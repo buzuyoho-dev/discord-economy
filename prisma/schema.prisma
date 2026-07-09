@@ -239,6 +239,26 @@ model LotteryStatusMessage {
   createdAt        DateTime @default(now())
 }
 
+// CRON: 매일 낮 12시 정규 추첨 / MANUAL: manualLotteryDraw.ts 수동 실행
+enum LotteryDrawSource {
+  CRON
+  MANUAL
+}
+
+// 매 추첨(runLotteryDraw 호출)마다 결과를 남기는 감사 로그.
+// 당첨 번호가 특정 구간에 쏠리는지 등을 나중에 실제 데이터로 검증할 수 있도록,
+// Discord 공지 메시지에만 남고 사라지던 값을 별도로 영구 보관한다.
+model LotteryDrawLog {
+  id            String            @id @default(cuid())
+  drawDate      DateTime
+  winningNumber Int
+  ticketCount   Int
+  source        LotteryDrawSource @default(CRON)
+  drawnAt       DateTime          @default(now())
+
+  @@index([drawDate])
+}
+
 // 💡 미니게임(블랙잭, 추후 다른 미니게임)의 "하루 몇 번 했는지" 횟수만 기록하는 테이블.
 // gameType별로 카운트가 완전히 분리되어서, 블랙잭을 5번 다 써도 다른 미니게임엔 영향 없음.
 model MinigamePlayLog {
