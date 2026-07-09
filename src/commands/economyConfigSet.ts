@@ -10,41 +10,41 @@ import { InvalidEconomyConfigError, updateEconomyConfig } from '../services/econ
 
 export const data = new SlashCommandBuilder()
   .setName('환급설정')
-  .setDescription('(관리자 전용) 주간 환급 비율과 하위 플레이어 가중치를 설정합니다.')
+  .setDescription('(관리자 전용) 하위 플레이어 가중치와 하우스 캡 비율을 설정합니다.')
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-  .addNumberOption((opt) =>
-    opt
-      .setName('비율')
-      .setDescription('환급 비율 (0 초과 1 이하, 예: 0.05 = 5%)')
-      .setRequired(true)
-      .setMinValue(0.01)
-      .setMaxValue(1)
-  )
   .addNumberOption((opt) =>
     opt
       .setName('가중치')
       .setDescription('하위 플레이어 가중치 (1 이상, 예: 1.5 = 1.5배)')
       .setRequired(true)
       .setMinValue(1)
+  )
+  .addNumberOption((opt) =>
+    opt
+      .setName('캡비율')
+      .setDescription('하우스 잔고 상한 비율 (0 초과 1 이하, 예: 0.4 = 40%)')
+      .setRequired(true)
+      .setMinValue(0.01)
+      .setMaxValue(1)
   );
 
 export async function execute(interaction: ChatInputCommandInteraction) {
-  const rebateRate = interaction.options.getNumber('비율', true);
   const lowerTierWeight = interaction.options.getNumber('가중치', true);
+  const houseBalanceCapRatio = interaction.options.getNumber('캡비율', true);
 
   try {
     const updated = await updateEconomyConfig({
       requestedBy: interaction.user.id,
       adminDiscordId: env.ADMIN_DISCORD_ID,
-      rebateRate,
       lowerTierWeight,
+      houseBalanceCapRatio,
     });
 
     await interaction.reply({
       content: [
-        '✅ 환급 설정을 변경했습니다. 다음 주 환급부터 즉시 반영됩니다.',
-        `비율: ${(updated.rebateRate * 100).toFixed(1)}%`,
+        '✅ 환급 설정을 변경했습니다. 다음 배치부터 즉시 반영됩니다.',
         `하위 플레이어 가중치: ${updated.lowerTierWeight}배`,
+        `하우스 캡 비율: ${(updated.houseBalanceCapRatio * 100).toFixed(1)}%`,
       ].join('\n'),
       flags: MessageFlags.Ephemeral,
     });
@@ -55,7 +55,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
     if (error instanceof InvalidEconomyConfigError) {
       await interaction.reply({
-        content: '비율은 0 초과 1 이하, 가중치는 1 이상이어야 합니다.',
+        content: '가중치는 1 이상, 캡 비율은 0 초과 1 이하여야 합니다.',
         flags: MessageFlags.Ephemeral,
       });
       return;

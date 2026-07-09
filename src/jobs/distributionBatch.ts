@@ -57,11 +57,11 @@ async function announceDistribution(client: Client, result: DistributionBatchRes
   if (result.distributed) {
     const perUserCount = result.perUserAmounts.size;
     lines.push(
-      `순증가분 기준 환급 재원: ${result.fundAmount.toLocaleString()}P`,
+      `하우스 캡 초과분 기준 환급 재원: ${result.fundAmount.toLocaleString()}P`,
       `대상 ${perUserCount}명에게 지급 완료 (\`/잔액\`으로 정확한 지급액 확인 가능)`
     );
   } else {
-    lines.push('이번 배치는 순증가분이 없어 환급이 지급되지 않았습니다.');
+    lines.push('이번 배치는 하우스 잔고가 캡 이하라 환급이 지급되지 않았습니다.');
   }
 
   lines.push(

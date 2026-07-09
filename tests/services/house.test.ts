@@ -3,6 +3,8 @@ import { prisma } from '../../src/db/client';
 import { getOrCreateUser, InsufficientBalanceError } from '../../src/services/ledger';
 import {
   applyHouseTransaction,
+  computeHouseCapExcess,
+  getEconomySnapshot,
   getHouseStatus,
   getOrCreateHouse,
   HOUSE_ID,
@@ -24,6 +26,66 @@ describe('getOrCreateHouse', () => {
 
     const count = await prisma.house.count();
     expect(count).toBe(1);
+  });
+});
+
+describe('getEconomySnapshot', () => {
+  test('하우스/유저가 모두 없으면 전부 0이다', async () => {
+    const snapshot = await getEconomySnapshot();
+
+    expect(snapshot.house.balance).toBe(0);
+    expect(snapshot.totalUserBalance).toBe(0);
+    expect(snapshot.totalEconomy).toBe(0);
+  });
+
+  test('유저 잔액 합 + 하우스 잔액을 totalEconomy로 반환한다', async () => {
+    await getOrCreateUser('snapshot-1'); // 10,000,000
+    await getOrCreateUser('snapshot-2'); // 10,000,000
+    await getOrCreateHouse();
+    await prisma.$transaction((tx) =>
+      applyHouseTransaction(tx, { type: 'TAX', amount: 5_000_000, description: 'test setup' })
+    );
+
+    const snapshot = await getEconomySnapshot();
+
+    expect(snapshot.house.balance).toBe(5_000_000);
+    expect(snapshot.totalUserBalance).toBe(20_000_000);
+    expect(snapshot.totalEconomy).toBe(25_000_000);
+  });
+});
+
+describe('computeHouseCapExcess', () => {
+  test('하우스 잔액이 캡을 초과하면 초과분을 양수로 반환한다', () => {
+    const result = computeHouseCapExcess({
+      totalEconomy: 100_000,
+      houseBalance: 80_000,
+      capRatio: 0.5,
+    });
+
+    expect(result.capAmount).toBe(50_000);
+    expect(result.excessAmount).toBe(30_000);
+  });
+
+  test('하우스 잔액이 캡 미만이면 초과분은 0이다(음수 아님)', () => {
+    const result = computeHouseCapExcess({
+      totalEconomy: 100_000,
+      houseBalance: 30_000,
+      capRatio: 0.5,
+    });
+
+    expect(result.capAmount).toBe(50_000);
+    expect(result.excessAmount).toBe(0);
+  });
+
+  test('하우스 잔액이 캡과 정확히 같으면 초과분은 정확히 0이다', () => {
+    const result = computeHouseCapExcess({
+      totalEconomy: 100_000,
+      houseBalance: 50_000,
+      capRatio: 0.5,
+    });
+
+    expect(result.capAmount).toBe(50_000);
+    expect(result.excessAmount).toBe(0);
   });
 });
 

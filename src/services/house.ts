@@ -17,11 +17,29 @@ export async function getOrCreateHouse(db: Db = prisma) {
   return db.house.create({ data: { id: HOUSE_ID } });
 }
 
-export async function getHouseStatus(db: Db = prisma) {
+export async function getEconomySnapshot(db: Db = prisma) {
   const house = await getOrCreateHouse(db);
   const users = await db.user.findMany({ select: { balance: true } });
   const totalUserBalance = users.reduce((sum, user) => sum + user.balance, 0);
   const totalEconomy = house.balance + totalUserBalance;
+  return { house, totalUserBalance, totalEconomy };
+}
+
+// 하우스 잔고가 전체 경제의 capRatio를 넘지 않도록, 캡 금액과 초과분(환급 재원)을
+// 계산하는 순수 함수. distributionBatch()의 정기 배치와 houseBalanceCapCatchUp.ts의
+// 일회성 catch-up 스크립트 양쪽에서 동일한 계산을 공유한다.
+export function computeHouseCapExcess(params: {
+  totalEconomy: number;
+  houseBalance: number;
+  capRatio: number;
+}): { capAmount: number; excessAmount: number } {
+  const capAmount = Math.floor(params.totalEconomy * params.capRatio);
+  const excessAmount = Math.max(0, params.houseBalance - capAmount);
+  return { capAmount, excessAmount };
+}
+
+export async function getHouseStatus(db: Db = prisma) {
+  const { house, totalUserBalance, totalEconomy } = await getEconomySnapshot(db);
   const share = totalEconomy > 0 ? house.balance / totalEconomy : 0;
 
   return { balance: house.balance, totalUserBalance, share };
