@@ -94,4 +94,26 @@ describe('runCatchUp - execute', () => {
     const txs = await prisma.transaction.findMany();
     expect(txs).toHaveLength(0);
   });
+
+  test('excludeUserId로 지정한 계정(봇 자신)은 하위 30% 인원수/지급 대상에서 완전히 빠진다', async () => {
+    await createUsers('y', 10, (i) => i * 1_000_000); // 합계 55,000,000
+    // 봇 계정: 하위 30%에 들어갈 만큼 잔액이 낮음 (제외되지 않으면 가중치 지급 대상)
+    await prisma.user.create({ data: { discordId: 'bot-account', balance: 500_000 } });
+    await setHouse(37_500_000);
+    // totalEconomy = 92,500,000 + 500,000 = 93,000,000... 봇 제외 시 92,500,000 그대로
+
+    const plan = await runCatchUp(true, new Date('2026-07-10T00:00:00.000Z'), {
+      excludeUserId: 'bot-account',
+    });
+
+    expect(plan.excessAmount).toBeGreaterThan(0);
+    expect(plan.items.find((item) => item.discordId === 'bot-account')).toBeUndefined();
+    expect(plan.lowerTierCount).toBe(3); // floor(10 * 0.3) - 봇 계정은 인원수 계산에서도 빠짐
+
+    const botUser = await prisma.user.findUniqueOrThrow({ where: { discordId: 'bot-account' } });
+    expect(botUser.balance).toBe(500_000); // 변동 없음
+
+    const botTxs = await prisma.transaction.findMany({ where: { userId: 'bot-account' } });
+    expect(botTxs).toHaveLength(0);
+  });
 });

@@ -1,4 +1,5 @@
 import { Prisma, TransactionType } from '@prisma/client';
+import { env } from '../config/env';
 import { prisma } from '../db/client';
 import { computeRebateDistribution, getLowerTierUserIds } from '../services/distributionBatch';
 import { getOrCreateEconomyConfig } from '../services/economyConfig';
@@ -23,7 +24,7 @@ export interface CatchUpPlan {
   totalDistributed: number;
 }
 
-async function buildCatchUpPlan(db: Db): Promise<CatchUpPlan> {
+async function buildCatchUpPlan(db: Db, options?: { excludeUserId?: string }): Promise<CatchUpPlan> {
   const config = await getOrCreateEconomyConfig(db);
   const { house, totalEconomy } = await getEconomySnapshot(db);
   const { capAmount, excessAmount } = computeHouseCapExcess({
@@ -32,8 +33,11 @@ async function buildCatchUpPlan(db: Db): Promise<CatchUpPlan> {
     capRatio: config.houseBalanceCapRatio,
   });
 
-  const users = await db.user.findMany({ select: { discordId: true } });
-  const lowerTierUserIds = await getLowerTierUserIds(db);
+  const users = await db.user.findMany({
+    where: options?.excludeUserId ? { discordId: { not: options.excludeUserId } } : undefined,
+    select: { discordId: true },
+  });
+  const lowerTierUserIds = await getLowerTierUserIds(db, options);
   const { perUserAmounts, totalDistributed } = computeRebateDistribution({
     users,
     lowerTierUserIds,
@@ -57,9 +61,13 @@ async function buildCatchUpPlan(db: Db): Promise<CatchUpPlan> {
 // 만큼을 한 번에 지급한다. execute=false(기본값)면 계산만 하고 DB에 아무것도 쓰지
 // 않는다 - dry-run과 execute 양쪽에서 이 함수를 그대로 재사용하며, 매번 그 시점의
 // 실제 DB 상태를 다시 읽는다(dry-run 확인 직후 곧바로 execute를 실행하는 것을 전제).
-export async function runCatchUp(execute: boolean, now: Date = new Date()): Promise<CatchUpPlan> {
+export async function runCatchUp(
+  execute: boolean,
+  now: Date = new Date(),
+  options?: { excludeUserId?: string }
+): Promise<CatchUpPlan> {
   return prisma.$transaction(async (tx) => {
-    const plan = await buildCatchUpPlan(tx);
+    const plan = await buildCatchUpPlan(tx, options);
 
     console.log(execute ? '=== 실행 결과 ===' : '=== DRY-RUN 결과 (DB에 쓰지 않음) ===');
     console.log(`전체 경제 규모: ${plan.totalEconomy.toLocaleString()}P`);
@@ -103,7 +111,9 @@ export async function runCatchUp(execute: boolean, now: Date = new Date()): Prom
 
 async function main() {
   const execute = process.argv.includes('--execute');
-  await runCatchUp(execute);
+  // 💡 봇 자신은 절대 catch-up 지급 대상이 되면 안 되므로, 봇의 Discord ID(=DISCORD_CLIENT_ID)를
+  // 명시적으로 제외한다. (runDistributionBatch()의 client.user?.id 제외와 동일한 취지)
+  await runCatchUp(execute, undefined, { excludeUserId: env.DISCORD_CLIENT_ID });
 }
 
 if (require.main === module) {
