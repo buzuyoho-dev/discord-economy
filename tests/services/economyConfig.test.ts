@@ -11,13 +11,14 @@ import {
 const ADMIN_ID = 'admin-1';
 
 describe('getOrCreateEconomyConfig', () => {
-  test('row가 없으면 기본값(5%, 1.5배, 캡비율 40%)으로 지연 생성한다', async () => {
+  test('row가 없으면 기본값(5%, 1.5배, 캡비율 40%, 환급공지채널)으로 지연 생성한다', async () => {
     const config = await getOrCreateEconomyConfig();
 
     expect(config.id).toBe(ECONOMY_CONFIG_ID);
     expect(config.rebateRate).toBe(0.05);
     expect(config.lowerTierWeight).toBe(1.5);
     expect(config.houseBalanceCapRatio).toBe(0.4);
+    expect(config.rebateAnnounceChannelId).toBe('1518506716164259910');
   });
 
   test('이미 있으면 기존 row를 그대로 반환한다', async () => {
