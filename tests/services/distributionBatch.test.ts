@@ -68,6 +68,7 @@ describe('distributionBatch - 정상 케이스', () => {
 
     expect(result.distributed).toBe(true);
     expect(result.fundAmount).toBe(500_000);
+    expect(result.totalDistributed).toBe(499_997);
     expect(result.lowerTierCount).toBe(3); // floor(10 * 0.3)
     expect(result.couponsIssued).toBe(3);
     expect(result.couponsSkipped).toBe(0);

@@ -13,6 +13,7 @@ export const MAX_VALID_COUPONS_PER_USER = 2;
 export interface DistributionBatchResult {
   distributed: boolean;
   fundAmount: number;
+  totalDistributed: number;
   lowerTierCount: number;
   couponsIssued: number;
   couponsSkipped: number;
@@ -175,6 +176,7 @@ export async function distributionBatch(
     return {
       distributed,
       fundAmount,
+      totalDistributed,
       lowerTierCount: lowerTierUserIds.length,
       couponsIssued: issuedUserIds.length,
       couponsSkipped: skippedUserIds.length,

@@ -31,7 +31,7 @@ export async function runDistributionBatch(client: Client) {
       await sendRebateAnnouncement(client, config.rebateAnnounceChannelId, {
         reason: 'WEEKLY_BATCH',
         distributed: result.distributed,
-        totalDistributed: result.fundAmount,
+        totalDistributed: result.totalDistributed,
         perUserAmounts: [...result.perUserAmounts].map(([discordId, amount]) => ({
           discordId,
           amount,
